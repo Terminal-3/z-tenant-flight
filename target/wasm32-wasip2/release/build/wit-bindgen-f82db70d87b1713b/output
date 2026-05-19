@@ -1,2 +1,0 @@
-cargo:rustc-link-lib=static=wit_bindgen_cabi0_49_0
-cargo:rustc-link-search=native=/private/tmp/z-tenant-flight/target/wasm32-wasip2/release/build/wit-bindgen-f82db70d87b1713b/out
