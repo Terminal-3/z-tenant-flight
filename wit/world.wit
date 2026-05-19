@@ -1,0 +1,86 @@
+/// z-tenant-flight WIT world.
+///
+/// Imports the four host capabilities required for the Duffel booking flow:
+///   - tenant-context: tenant DID, cluster timestamp, calling-user DID
+///   - logging:        debug / info / error (host stamps tenant DID per line)
+///   - kv-store:       durable key-value store, scoped to z:<tid>:* by the governor
+///   - outbox:         durable at-most-once HTTP side-effects to Duffel sandbox
+///   - user-profile:   write user PII into the TEE (never exposed to the contract body)
+///
+/// Exports the `contracts` interface with the four booking entry-points:
+///   store-offer, start-booking, confirm-booking, get-booking.
+package z:tenant-flight@0.1.0;
+
+world tenant-flight {
+    import host:tenant/tenant-context@1.0.0;
+    import host:interfaces/logging@2.1.0;
+    import host:interfaces/kv-store@2.1.0;
+    import host:outbox/outbox@1.0.0;
+    import host:interfaces/user-profile@2.1.0;
+
+    export contracts;
+}
+
+interface contracts {
+    /// Cache a Duffel offer so start-booking can verify amount / expiry
+    /// without a live Duffel round-trip inside the TEE.
+    record store-offer-req {
+        offer-id: string,
+        amount-minor: u64,
+        currency: string,
+        expires-at-sec: u64,
+    }
+
+    record offer-id {
+        id: string,
+    }
+
+    /// Begin a booking. The agent hands in the offer + a signed delegation
+    /// credential that proves the *user* authorised this specific booking.
+    /// PII (passport, DOB) is read from user-profile inside the TEE; it
+    /// never crosses the WIT boundary back to the caller.
+    record start-booking-req {
+        offer-id: string,
+        /// DID of the passenger whose PII to read from user-profile.
+        passenger-did: string,
+        /// EIP-191-signed BookingDelegationCredential, serialised as JSON
+        /// and encoded as bytes. The contract verifies all 6 checks before
+        /// writing any state.
+        delegation-envelope: list<u8>,
+    }
+
+    record start-booking-resp {
+        booking-id: string,
+        status: string,
+    }
+
+    /// Called by the Duffel webhook relay once the order is confirmed.
+    record confirm-req {
+        booking-id: string,
+        pnr: string,
+    }
+
+    record booking {
+        booking-id: string,
+        offer-id: string,
+        pnr: option<string>,
+        status: string,
+    }
+
+    record get-booking-req {
+        booking-id: string,
+    }
+
+    /// Cache the Duffel offer so start-booking can verify amount/expiry.
+    store-offer: func(req: store-offer-req) -> result<offer-id, string>;
+
+    /// Verify the delegation credential, read PII from the TEE, enqueue
+    /// the Duffel create-order call via outbox, and write a Pending row.
+    start-booking: func(req: start-booking-req) -> result<start-booking-resp, string>;
+
+    /// Write the PNR returned by the Duffel webhook relay.
+    confirm-booking: func(req: confirm-req) -> result<booking, string>;
+
+    /// Point-read of a booking row.
+    get-booking: func(req: get-booking-req) -> result<booking, string>;
+}
