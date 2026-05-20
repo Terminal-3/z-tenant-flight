@@ -44,6 +44,14 @@ pub mod status {
     pub const CONFIRMED: &str = "Confirmed";
 }
 
+/// Hardcoded PNR returned in demo/showcase mode.
+///
+/// Production would receive the real PNR via the Duffel webhook relay
+/// (`confirm-booking`). For this showcase the outbox is fully wired but
+/// the drain worker does not hit live Duffel — the booking is written as
+/// Confirmed immediately so the demo flow runs end-to-end.
+const MOCK_PNR: &str = "T3DEMO1";
+
 // ── WASM target: use WIT-generated bindings ──────────────────────────────────
 
 #[cfg(target_arch = "wasm32")]
@@ -52,6 +60,8 @@ use crate::exports::z::tenant_flight::contracts::{
 };
 #[cfg(target_arch = "wasm32")]
 use crate::host::interfaces::kv_store as kv;
+#[cfg(target_arch = "wasm32")]
+use crate::host::interfaces::logging;
 #[cfg(target_arch = "wasm32")]
 use crate::host::outbox::outbox as outbox_iface;
 #[cfg(target_arch = "wasm32")]
@@ -152,8 +162,13 @@ pub fn store_offer(req: StoreOfferReq) -> Result<OfferId, String> {
 ///   5. Write the nonce to `KV_DELEGATION_NONCES` (replay guard).
 ///   6. Read passenger PII from `user-profile` (never leaves the TEE).
 ///   7. Enqueue `POST /orders` to Duffel via the outbox.
-///   8. Write a `Pending` booking row to `KV_BOOKINGS`.
-///   9. Return `{ booking_id, status: "Pending" }`.
+///   8. Write a `Confirmed` booking row to `KV_BOOKINGS` (mock PNR for demo).
+///   9. Return `{ booking_id, status: "Confirmed" }`.
+///
+/// # Demo note
+/// The outbox enqueue call is fully wired (URL, headers, body) but the drain
+/// worker does not hit real Duffel in this showcase. A hardcoded PNR is used
+/// so callers see a complete end-to-end flow without a live Duffel account.
 #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
 pub fn start_booking(req: StartBookingReq) -> Result<StartBookingResp, String> {
     // ── 1. parse delegation envelope (once — nonce extracted here) ───────────
@@ -266,12 +281,19 @@ pub fn start_booking(req: StartBookingReq) -> Result<StartBookingResp, String> {
         outbox_iface::enqueue(&idk, &duffel_req)
             .map_err(|e| alloc::format!("outbox enqueue: {e:?}"))?;
 
-        // ── 8. write Pending booking row ────────────────────────────────────
+        // Demo: outbox is wired but drain worker does not hit live Duffel.
+        // Log the mock response and skip the webhook-relay step.
+        let _ = logging::info(&alloc::format!(
+            "Duffel POST /orders enqueued for booking {booking_id} \
+             — mock response: order created OK, PNR={MOCK_PNR}"
+        ));
+
+        // ── 8. write Confirmed booking row (mock PNR for demo) ───────────────
         let row = BookingRow {
             booking_id: booking_id.clone(),
             offer_id: req.offer_id.clone(),
-            pnr: None,
-            status: status::PENDING.to_string(),
+            pnr: Some(MOCK_PNR.to_string()),
+            status: status::CONFIRMED.to_string(),
         };
         let row_bytes = serde_json::to_vec(&row).map_err(|e| e.to_string())?;
         kv::put(KV_BOOKINGS, booking_id.as_bytes(), &row_bytes)
@@ -279,7 +301,7 @@ pub fn start_booking(req: StartBookingReq) -> Result<StartBookingResp, String> {
 
         return Ok(StartBookingResp {
             booking_id,
-            status: status::PENDING.to_string(),
+            status: status::CONFIRMED.to_string(),
         });
     }
 

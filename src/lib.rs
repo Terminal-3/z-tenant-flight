@@ -6,8 +6,8 @@
 //!   - The contract verifies the credential (6 checks), reads PII from
 //!     `user-profile` **inside the TEE**, enqueues the Duffel `POST
 //!     /orders` call via the outbox, and returns a `Pending` booking.
-//!   - A webhook relay calls `confirm-booking` with the PNR once the
-//!     Duffel order lands.
+//!   - For this showcase the drain worker does not hit live Duffel — the
+//!     booking is written as Confirmed immediately with a hardcoded demo PNR.
 //!
 //! Privacy guarantee: passport number, date-of-birth, and full name
 //! are read from the TEE's user-profile store and forwarded to Duffel
