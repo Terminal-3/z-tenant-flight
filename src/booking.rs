@@ -1,0 +1,179 @@
+//! book_offer: calls Duffel create-order API and returns the PNR.
+
+#[cfg(target_arch = "wasm32")]
+use serde_json::json;
+
+#[cfg(target_arch = "wasm32")]
+use crate::{
+    exports::z::tenant_flight::contracts::{BookOfferReq, Booking},
+    host::interfaces::{http as http_iface, logging, secret as secret_iface},
+};
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use stubs::*;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod stubs {
+    #[derive(Debug, Clone)]
+    pub struct Passenger {
+        pub given_name: String,
+        pub family_name: String,
+        pub date_of_birth: String,
+        pub passport_number: String,
+        pub nationality: String,
+        pub passport_expiry: String,
+        pub gender: String,
+        pub email: String,
+        pub phone: String,
+    }
+    #[derive(Debug, Clone)]
+    pub struct BookOfferReq {
+        pub offer_id: String,
+        pub passenger: Passenger,
+    }
+    #[derive(Debug, Clone)]
+    pub struct Booking {
+        pub id: String,
+        pub pnr: String,
+        pub status: String,
+    }
+}
+
+const DUFFEL_BASE: &str = "https://api.duffel.com";
+const DUFFEL_VERSION: &str = "v2";
+
+#[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
+pub fn book_offer(req: BookOfferReq) -> Result<Booking, String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let api_key = get_api_key()?;
+
+        let order_body = json!({
+            "data": {
+                "type": "instant",
+                "selected_offers": [req.offer_id],
+                "passengers": [{
+                    "id": "passenger_0",
+                    "given_name": req.passenger.given_name,
+                    "family_name": req.passenger.family_name,
+                    "born_on": req.passenger.date_of_birth,
+                    "passport_number": req.passenger.passport_number,
+                    "passport_country_code": req.passenger.nationality,
+                    "passport_expiry_date": req.passenger.passport_expiry,
+                    "gender": req.passenger.gender,
+                    "email": req.passenger.email,
+                    "phone_number": req.passenger.phone,
+                }],
+                "payments": [{ "type": "balance", "amount": "0", "currency": "GBP" }]
+            }
+        });
+
+        let _ = logging::info(&alloc::format!(
+            "Calling Duffel POST /air/orders for offer {}",
+            req.offer_id
+        ));
+
+        let resp = http_iface::call(http_iface::Request {
+            method: http_iface::Verb::Post,
+            url: alloc::format!("{DUFFEL_BASE}/air/orders"),
+            headers: Some(duffel_headers(&api_key)),
+            payload: Some(serde_json::to_vec(&order_body).map_err(|e| e.to_string())?),
+        })
+        .map_err(|e| alloc::format!("duffel create-order: {e}"))?;
+
+        if resp.code != 200 && resp.code != 201 {
+            let body = alloc::string::String::from_utf8_lossy(&resp.payload).to_string();
+            return Err(alloc::format!(
+                "Duffel create-order failed: HTTP {} — {body}",
+                resp.code
+            ));
+        }
+
+        let order: serde_json::Value =
+            serde_json::from_slice(&resp.payload).map_err(|e| e.to_string())?;
+
+        let booking_id = order["data"]["id"].as_str().unwrap_or("").to_string();
+        let pnr = order["data"]["booking_reference"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        let status = order["data"]["payment_status"]["awaiting_payment"]
+            .as_bool()
+            .map(|b| {
+                if b {
+                    "awaiting_payment"
+                } else {
+                    "confirmed"
+                }
+            })
+            .unwrap_or("confirmed")
+            .to_string();
+
+        let _ = logging::info(&alloc::format!(
+            "Duffel order created: id={booking_id} pnr={pnr}"
+        ));
+
+        return Ok(Booking {
+            id: booking_id,
+            pnr,
+            status,
+        });
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    Err("book_offer is only implemented on the wasm32 target".to_string())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn get_api_key() -> Result<alloc::string::String, alloc::string::String> {
+    let bytes = secret_iface::get_secret("duffel_api_key")
+        .map_err(|e| alloc::format!("secret read: {e}"))?
+        .ok_or("duffel_api_key not set — call put_secret(\"duffel_api_key\", key) first")?;
+    alloc::string::String::from_utf8(bytes).map_err(|e| e.to_string())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn duffel_headers(
+    api_key: &str,
+) -> alloc::vec::Vec<(alloc::string::String, alloc::string::String)> {
+    alloc::vec![
+        (
+            "Authorization".to_string(),
+            alloc::format!("Bearer {api_key}"),
+        ),
+        ("Duffel-Version".to_string(), DUFFEL_VERSION.to_string()),
+        (
+            "Content-Type".to_string(),
+            "application/json".to_string(),
+        ),
+        ("Accept".to_string(), "application/json".to_string()),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn book_offer_non_wasm_returns_err() {
+        let req = BookOfferReq {
+            offer_id: "off_abc123".to_string(),
+            passenger: Passenger {
+                given_name: "Jane".to_string(),
+                family_name: "Smith".to_string(),
+                date_of_birth: "1990-01-15".to_string(),
+                passport_number: "AB1234567".to_string(),
+                nationality: "GB".to_string(),
+                passport_expiry: "2030-06-01".to_string(),
+                gender: "f".to_string(),
+                email: "jane@example.com".to_string(),
+                phone: "+441234567890".to_string(),
+            },
+        };
+        let result = book_offer(req);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("only implemented on the wasm32 target"));
+    }
+}
