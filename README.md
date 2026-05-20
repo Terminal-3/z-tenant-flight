@@ -23,18 +23,21 @@ Declare in your contract manifest:
 { "host_capabilities": ["kv_store", "logging", "tenant_context", "http"] }
 ```
 
-The `http` capability selects the `tenant-http` linker world (MAT-1571), which also includes the `state` and `secret` interfaces used to store the Duffel API key.
+The `http` capability enables outbound HTTP via the `tenant-http` linker world (MAT-1571).
 
-## Setup: storing the Duffel API key
+## Setup: providing the Duffel API key
 
-Before first use, store your Duffel API key in the TEE secret store. The key is never in source code or KV maps — it lives in the encrypted secret store scoped to your tenant.
+Before deploying or calling this contract for the first time, the tenant SDK must:
+
+1. Create the `credentials` KV map in the z: namespace.
+2. Write the Duffel API key under the key `duffel_api_key`.
 
 ```bash
-# Via Trinity admin tooling:
-trinity admin secret put duffel_api_key duffel_test_your_key_here
-
-# Or via the put-secret WIT function in a one-time setup call.
+# Example via the tenant SDK / admin tooling:
+z_sdk.kv("credentials").set("duffel_api_key", "<your Duffel test API token>")
 ```
+
+The contract reads this value at runtime using `host:interfaces/kv-store` — no `secret` interface is involved. The `credentials` map is owned and populated externally by the tenant operator; the contract never writes to it.
 
 ## Building
 
@@ -124,4 +127,4 @@ Returns `{ "id": "ord_...", "pnr": "ABC123", "status": "confirmed" }`.
 
 ## Depends on
 
-- MAT-1571: `tenant-http` linker world — provides `host:interfaces/http` and `host:interfaces/secret` to z-space contracts at runtime.
+- MAT-1571: `tenant-http` linker world — provides `host:interfaces/http` to z-space contracts at runtime.

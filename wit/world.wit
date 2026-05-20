@@ -3,14 +3,13 @@
 /// Imports required host capabilities:
 ///   - tenant-context: tenant DID, cluster timestamp
 ///   - logging:        debug / info / error lines
-///   - kv-store:       NOT USED in v2; kept so the world stays
-///                     compatible with tenant-base linker expectations
+///   - kv-store:       reads the `credentials` map for the Duffel API key
 ///   - http:           synchronous Duffel API calls (search + book)
-///   - secret:         tenant-scoped API key store (Duffel token)
 ///
-/// Note: http + secret require the `Http` HostCapability to be
-/// granted at admit time. These interfaces are available via the
-/// `tenant-http` linker world (MAT-1571).
+/// Note: http requires the `Http` HostCapability to be granted at admit time.
+/// The Duffel API key is stored in the z: KV map `credentials` under the key
+/// `duffel_api_key`. This map is created and populated by the tenant SDK
+/// before the contract runs — no secret interface is needed.
 package z:tenant-flight@0.2.0;
 
 world tenant-flight {
@@ -18,7 +17,6 @@ world tenant-flight {
     import host:interfaces/logging@2.1.0;
     import host:interfaces/kv-store@2.1.0;
     import host:interfaces/http@2.1.0;
-    import host:interfaces/secret@2.1.0;
 
     export contracts;
 }

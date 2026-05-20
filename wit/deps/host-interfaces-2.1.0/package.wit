@@ -613,14 +613,6 @@ interface state {
   delete-state: func(key: string) -> result<_, string>;
 }
 
-/// Tenant-scoped secret store. Secrets are encrypted at rest and
-/// never cross the WIT boundary back to callers — they can only be
-/// read inside the TEE execution context.
-interface secret {
-  get-secret: func(key: string) -> result<option<list<u8>>, string>;
-  put-secret: func(key: string, value: list<u8>) -> result<_, string>;
-}
-
 world interfaces {
   export http;
   export logging;
@@ -638,5 +630,4 @@ world interfaces {
   export token;
   export contracts-call;
   export state;
-  export secret;
 }

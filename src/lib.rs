@@ -4,11 +4,11 @@
 //!   - `search-offers`: calls Duffel offer search API inside the TEE.
 //!   - `book-offer`: calls Duffel create-order API inside the TEE.
 //!
-//! The Duffel API key is stored in the host secret store (never in
-//! contract code or KV maps). PII is passed in by the agent, used
-//! inside the enclave to call Duffel, and never returned to the agent.
-//! Only the booking ID and PNR cross the WIT boundary back to the
-//! caller.
+//! The Duffel API key is read from the z: KV map `credentials` (key:
+//! `duffel_api_key`). This map is created and populated by the tenant SDK
+//! before the contract runs. PII is passed in by the agent, used inside the
+//! enclave to call Duffel, and never returned to the agent. Only the booking
+//! ID and PNR cross the WIT boundary back to the caller.
 //!
 //! # Host-capability requirements
 //!
@@ -16,16 +16,15 @@
 //! ```json
 //! { "host_capabilities": ["kv_store", "logging", "tenant_context", "http"] }
 //! ```
-//! The `Http` capability selects the `tenant-http` linker world, which
-//! also includes the `state` and `secret` interfaces.
 //!
 //! # Setup
 //!
-//! Before first use, store your Duffel API key:
+//! Before first use, the tenant SDK must create the `credentials` KV map and
+//! write the Duffel API key:
+//! ```text
+//! // Via the tenant SDK (before contract first use):
+//! z_sdk.kv("credentials").set("duffel_api_key", "duffel_test_your_key_here")
 //! ```
-//! secret::put_secret("duffel_api_key", b"duffel_test_your_key_here")
-//! ```
-//! (Call this once from a setup function or directly via admin tooling.)
 #![warn(clippy::style, missing_debug_implementations)]
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
