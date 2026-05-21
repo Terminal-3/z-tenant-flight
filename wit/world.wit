@@ -1,0 +1,82 @@
+/// z-tenant-flight WIT world — Duffel flight booking showcase.
+///
+/// Imports required host capabilities:
+///   - tenant-context: tenant DID, cluster timestamp
+///   - logging:        debug / info / error lines
+///   - kv-store:       reads the `credentials` map for the Duffel API key
+///   - http:           synchronous Duffel API calls (search + book)
+///
+/// Note: http requires the `Http` HostCapability to be granted at admit time.
+/// The Duffel API key is stored in the z: KV map `z:<tid>:secrets` under the key
+/// `duffel_api_key`. The contract builds the full map name at runtime using
+/// `tenant-context.tenant-did()`. The map is created and populated by the
+/// tenant SDK before the contract runs — no secret interface is needed.
+package z:tenant-flight@0.3.0;
+
+world tenant-flight {
+    import host:tenant/tenant-context@1.0.0;
+    import host:interfaces/logging@2.1.0;
+    import host:interfaces/kv-store@2.1.0;
+    import host:interfaces/http@2.1.0;
+
+    export contracts;
+}
+
+interface contracts {
+    record search-offers-req {
+        /// IATA airport code e.g. "LHR"
+        origin: string,
+        /// IATA airport code e.g. "JFK"
+        destination: string,
+        /// ISO date e.g. "2026-07-15"
+        departure-date: string,
+        /// "economy" | "business" | "first"
+        cabin-class: string,
+        adult-count: u32,
+    }
+
+    record offer {
+        id: string,
+        total-amount: string,
+        total-currency: string,
+        expires-at: string,
+    }
+
+    record search-offers-resp {
+        offers: list<offer>,
+    }
+
+    record passenger {
+        given-name: string,
+        family-name: string,
+        date-of-birth: string,
+        passport-number: string,
+        nationality: string,
+        passport-expiry: string,
+        /// "m" | "f" | "u"
+        gender: string,
+        email: string,
+        phone: string,
+    }
+
+    record book-offer-req {
+        offer-id: string,
+        passengers: list<passenger>,
+        /// Total price from the selected offer (e.g. "199.00").
+        total-amount: string,
+        /// ISO 4217 currency code from the selected offer (e.g. "GBP").
+        total-currency: string,
+    }
+
+    record booking {
+        id: string,
+        pnr: string,
+        status: string,
+    }
+
+    /// Search Duffel for available flights and return a list of offers.
+    search-offers: func(req: search-offers-req) -> result<search-offers-resp, string>;
+
+    /// Book the selected offer. Returns booking ID and PNR.
+    book-offer: func(req: book-offer-req) -> result<booking, string>;
+}
