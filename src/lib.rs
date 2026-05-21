@@ -4,7 +4,7 @@
 //!   - `search-offers`: calls Duffel offer search API inside the TEE.
 //!   - `book-offer`: calls Duffel create-order API inside the TEE.
 //!
-//! The Duffel API key is read from the z: KV map `credentials` (key:
+//! The Duffel API key is read from the z: KV map `secrets` (key:
 //! `duffel_api_key`). This map is created and populated by the tenant SDK
 //! before the contract runs. PII is passed in by the agent, used inside the
 //! enclave to call Duffel, and never returned to the agent. Only the booking
@@ -19,11 +19,11 @@
 //!
 //! # Setup
 //!
-//! Before first use, the tenant SDK must create the `credentials` KV map and
+//! Before first use, the tenant SDK must create the `secrets` KV map and
 //! write the Duffel API key:
 //! ```text
 //! // Via the tenant SDK (before contract first use):
-//! z_sdk.kv("credentials").set("duffel_api_key", "duffel_test_your_key_here")
+//! z_sdk.kv("secrets").set("duffel_api_key", "duffel_test_your_key_here")
 //! ```
 #![warn(clippy::style, missing_debug_implementations)]
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]

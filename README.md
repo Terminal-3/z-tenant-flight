@@ -29,15 +29,15 @@ The `http` capability enables outbound HTTP via the `tenant-http` linker world (
 
 Before deploying or calling this contract for the first time, the tenant SDK must:
 
-1. Create the `credentials` KV map in the z: namespace.
+1. Create the `secrets` KV map in the z: namespace.
 2. Write the Duffel API key under the key `duffel_api_key`.
 
 ```bash
 # Example via the tenant SDK / admin tooling:
-z_sdk.kv("credentials").set("duffel_api_key", "<your Duffel test API token>")
+z_sdk.kv("secrets").set("duffel_api_key", "<your Duffel test API token>")
 ```
 
-The contract reads this value at runtime using `host:interfaces/kv-store` — no `secret` interface is involved. The `credentials` map is owned and populated externally by the tenant operator; the contract never writes to it.
+The contract reads this value at runtime using `host:interfaces/kv-store` — no `secret` interface is involved. The `secrets` map is owned and populated externally by the tenant operator; the contract never writes to it.
 
 ## Building
 

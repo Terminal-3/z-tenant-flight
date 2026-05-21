@@ -142,9 +142,9 @@ pub fn search_offers(req: SearchOffersReq) -> Result<SearchOffersResp, String> {
 
 #[cfg(target_arch = "wasm32")]
 fn get_api_key() -> Result<alloc::string::String, alloc::string::String> {
-    let bytes = kv_store::get("credentials", b"duffel_api_key")
+    let bytes = kv_store::get("secrets", b"duffel_api_key")
         .map_err(|e| alloc::format!("kv read: {e}"))?
-        .ok_or("duffel_api_key not found in credentials KV map — populate it via the tenant SDK before use")?;
+        .ok_or("duffel_api_key not found in secrets KV map — populate it via the tenant SDK before use")?;
     alloc::string::String::from_utf8(bytes).map_err(|e| e.to_string())
 }
 
