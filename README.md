@@ -1,6 +1,6 @@
 # z-tenant-flight
 
-Duffel flight booking showcase for Trinity z-space tenants — v0.2.0.
+Duffel flight booking showcase for Trinity z-space tenants — v0.3.0.
 
 A Rust WASM contract that runs inside the Trinity TEE (Trusted Execution Environment) and calls the [Duffel](https://duffel.com) API synchronously via `host:interfaces/http`.
 
@@ -13,7 +13,7 @@ Two contract functions exposed over WIT:
 | `search-offers` | POST to Duffel `/air/offer-requests`, then GET `/air/offers` — returns a list of available flights |
 | `book-offer` | POST to Duffel `/air/orders` with full passenger PII — returns the booking ID and PNR |
 
-Privacy guarantee: passenger PII (passport number, date-of-birth, full name) is passed in by the agent and used inside the enclave to call Duffel. Only the booking ID and PNR cross the WIT boundary back to the caller.
+Privacy guarantee: passenger PII (passport number, date-of-birth, full name, email, phone) is passed in by the agent and used inside the enclave to call Duffel. Only the booking ID and PNR cross the WIT boundary back to the caller. Error responses from Duffel are logged inside the TEE and never forwarded to the caller.
 
 ## Host-capability manifest
 
@@ -88,17 +88,21 @@ Input:
 ```json
 {
   "offer_id": "off_abc123",
-  "passenger": {
-    "given_name": "Jane",
-    "family_name": "Smith",
-    "date_of_birth": "1990-01-15",
-    "passport_number": "AB1234567",
-    "nationality": "GB",
-    "passport_expiry": "2030-06-01",
-    "gender": "f",
-    "email": "jane@example.com",
-    "phone": "+441234567890"
-  }
+  "passengers": [
+    {
+      "given_name": "Jane",
+      "family_name": "Smith",
+      "date_of_birth": "1990-01-15",
+      "passport_number": "AB1234567",
+      "nationality": "GB",
+      "passport_expiry": "2030-06-01",
+      "gender": "f",
+      "email": "jane@example.com",
+      "phone": "+441234567890"
+    }
+  ],
+  "total_amount": "199.00",
+  "total_currency": "GBP"
 }
 ```
 

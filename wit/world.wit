@@ -10,7 +10,7 @@
 /// The Duffel API key is stored in the z: KV map `credentials` under the key
 /// `duffel_api_key`. This map is created and populated by the tenant SDK
 /// before the contract runs — no secret interface is needed.
-package z:tenant-flight@0.2.0;
+package z:tenant-flight@0.3.0;
 
 world tenant-flight {
     import host:tenant/tenant-context@1.0.0;
@@ -60,7 +60,11 @@ interface contracts {
 
     record book-offer-req {
         offer-id: string,
-        passenger: passenger,
+        passengers: list<passenger>,
+        /// Total price from the selected offer (e.g. "199.00").
+        total-amount: string,
+        /// ISO 4217 currency code from the selected offer (e.g. "GBP").
+        total-currency: string,
     }
 
     record booking {

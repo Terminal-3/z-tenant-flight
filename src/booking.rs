@@ -29,7 +29,9 @@ mod stubs {
     #[derive(Debug, Clone)]
     pub struct BookOfferReq {
         pub offer_id: String,
-        pub passenger: Passenger,
+        pub passengers: Vec<Passenger>,
+        pub total_amount: String,
+        pub total_currency: String,
     }
     #[derive(Debug, Clone)]
     pub struct Booking {
@@ -48,23 +50,36 @@ pub fn book_offer(req: BookOfferReq) -> Result<Booking, String> {
     {
         let api_key = get_api_key()?;
 
+        let passengers_payload: alloc::vec::Vec<serde_json::Value> = req
+            .passengers
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                json!({
+                    "id": alloc::format!("passenger_{i}"),
+                    "given_name": p.given_name,
+                    "family_name": p.family_name,
+                    "born_on": p.date_of_birth,
+                    "passport_number": p.passport_number,
+                    "passport_country_code": p.nationality,
+                    "passport_expiry_date": p.passport_expiry,
+                    "gender": p.gender,
+                    "email": p.email,
+                    "phone_number": p.phone,
+                })
+            })
+            .collect();
+
         let order_body = json!({
             "data": {
                 "type": "instant",
                 "selected_offers": [req.offer_id],
-                "passengers": [{
-                    "id": "passenger_0",
-                    "given_name": req.passenger.given_name,
-                    "family_name": req.passenger.family_name,
-                    "born_on": req.passenger.date_of_birth,
-                    "passport_number": req.passenger.passport_number,
-                    "passport_country_code": req.passenger.nationality,
-                    "passport_expiry_date": req.passenger.passport_expiry,
-                    "gender": req.passenger.gender,
-                    "email": req.passenger.email,
-                    "phone_number": req.passenger.phone,
-                }],
-                "payments": [{ "type": "balance", "amount": "0", "currency": "GBP" }]
+                "passengers": passengers_payload,
+                "payments": [{
+                    "type": "balance",
+                    "amount": req.total_amount,
+                    "currency": req.total_currency,
+                }]
             }
         });
 
@@ -82,9 +97,14 @@ pub fn book_offer(req: BookOfferReq) -> Result<Booking, String> {
         .map_err(|e| alloc::format!("duffel create-order: {e}"))?;
 
         if resp.code != 200 && resp.code != 201 {
-            let body = alloc::string::String::from_utf8_lossy(&resp.payload).to_string();
+            // Log full body inside the enclave; do NOT forward it — it may contain PII.
+            let _ = logging::error(&alloc::format!(
+                "Duffel create-order HTTP {}: {}",
+                resp.code,
+                alloc::string::String::from_utf8_lossy(&resp.payload)
+            ));
             return Err(alloc::format!(
-                "Duffel create-order failed: HTTP {} — {body}",
+                "Duffel create-order failed: HTTP {}",
                 resp.code
             ));
         }
@@ -92,20 +112,17 @@ pub fn book_offer(req: BookOfferReq) -> Result<Booking, String> {
         let order: serde_json::Value =
             serde_json::from_slice(&resp.payload).map_err(|e| e.to_string())?;
 
-        let booking_id = order["data"]["id"].as_str().unwrap_or("").to_string();
+        let booking_id = order["data"]["id"]
+            .as_str()
+            .ok_or("Duffel response missing order id")?
+            .to_string();
         let pnr = order["data"]["booking_reference"]
             .as_str()
-            .unwrap_or("")
+            .ok_or("Duffel response missing booking_reference")?
             .to_string();
         let status = order["data"]["payment_status"]["awaiting_payment"]
             .as_bool()
-            .map(|b| {
-                if b {
-                    "awaiting_payment"
-                } else {
-                    "confirmed"
-                }
-            })
+            .map(|b| if b { "awaiting_payment" } else { "confirmed" })
             .unwrap_or("confirmed")
             .to_string();
 
@@ -142,10 +159,7 @@ fn duffel_headers(
             alloc::format!("Bearer {api_key}"),
         ),
         ("Duffel-Version".to_string(), DUFFEL_VERSION.to_string()),
-        (
-            "Content-Type".to_string(),
-            "application/json".to_string(),
-        ),
+        ("Content-Type".to_string(), "application/json".to_string(),),
         ("Accept".to_string(), "application/json".to_string()),
     ]
 }
@@ -158,7 +172,7 @@ mod tests {
     fn book_offer_non_wasm_returns_err() {
         let req = BookOfferReq {
             offer_id: "off_abc123".to_string(),
-            passenger: Passenger {
+            passengers: vec![Passenger {
                 given_name: "Jane".to_string(),
                 family_name: "Smith".to_string(),
                 date_of_birth: "1990-01-15".to_string(),
@@ -168,7 +182,9 @@ mod tests {
                 gender: "f".to_string(),
                 email: "jane@example.com".to_string(),
                 phone: "+441234567890".to_string(),
-            },
+            }],
+            total_amount: "199.00".to_string(),
+            total_currency: "GBP".to_string(),
         };
         let result = book_offer(req);
         assert!(result.is_err());

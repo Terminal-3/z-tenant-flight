@@ -65,9 +65,7 @@ pub fn search_offers(req: SearchOffersReq) -> Result<SearchOffersResp, String> {
             method: http_iface::Verb::Post,
             url: alloc::format!("{DUFFEL_BASE}/air/offer-requests"),
             headers: Some(duffel_headers(&api_key)),
-            payload: Some(
-                serde_json::to_vec(&offer_request_body).map_err(|e| e.to_string())?,
-            ),
+            payload: Some(serde_json::to_vec(&offer_request_body).map_err(|e| e.to_string())?),
         })
         .map_err(|e| alloc::format!("duffel offer-request: {e}"))?;
 
@@ -110,17 +108,30 @@ pub fn search_offers(req: SearchOffersReq) -> Result<SearchOffersResp, String> {
         let offers_json: serde_json::Value =
             serde_json::from_slice(&offers_resp.payload).map_err(|e| e.to_string())?;
 
-        let offers = offers_json["data"]
+        let offers: Result<alloc::vec::Vec<Offer>, alloc::string::String> = offers_json["data"]
             .as_array()
             .ok_or("missing offers array")?
             .iter()
-            .map(|o| Offer {
-                id: o["id"].as_str().unwrap_or("").to_string(),
-                total_amount: o["total_amount"].as_str().unwrap_or("0").to_string(),
-                total_currency: o["total_currency"].as_str().unwrap_or("").to_string(),
-                expires_at: o["expires_at"].as_str().unwrap_or("").to_string(),
+            .map(|o| {
+                let id = o["id"].as_str().ok_or("offer missing id")?.to_string();
+                let total_amount = o["total_amount"]
+                    .as_str()
+                    .ok_or("offer missing total_amount")?
+                    .to_string();
+                let total_currency = o["total_currency"]
+                    .as_str()
+                    .ok_or("offer missing total_currency")?
+                    .to_string();
+                let expires_at = o["expires_at"].as_str().unwrap_or("").to_string();
+                Ok(Offer {
+                    id,
+                    total_amount,
+                    total_currency,
+                    expires_at,
+                })
             })
             .collect();
+        let offers = offers?;
 
         return Ok(SearchOffersResp { offers });
     }
@@ -147,10 +158,7 @@ fn duffel_headers(
             alloc::format!("Bearer {api_key}"),
         ),
         ("Duffel-Version".to_string(), DUFFEL_VERSION.to_string()),
-        (
-            "Content-Type".to_string(),
-            "application/json".to_string(),
-        ),
+        ("Content-Type".to_string(), "application/json".to_string(),),
         ("Accept".to_string(), "application/json".to_string()),
     ]
 }
