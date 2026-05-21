@@ -10,7 +10,7 @@ use serde_json::json;
 #[cfg(target_arch = "wasm32")]
 use crate::{
     exports::z::tenant_flight::contracts::{Offer, SearchOffersReq, SearchOffersResp},
-    host::interfaces::{http as http_iface, kv_store, logging},
+    host::{interfaces::{http as http_iface, kv_store, logging}, tenant::tenant_context},
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -61,7 +61,7 @@ pub fn search_offers(req: SearchOffersReq) -> Result<SearchOffersResp, String> {
             }
         });
 
-        let offer_req_resp = http_iface::call(http_iface::Request {
+        let offer_req_resp = http_iface::call(&http_iface::Request {
             method: http_iface::Verb::Post,
             url: alloc::format!("{DUFFEL_BASE}/air/offer-requests"),
             headers: Some(duffel_headers(&api_key)),
@@ -88,7 +88,7 @@ pub fn search_offers(req: SearchOffersReq) -> Result<SearchOffersResp, String> {
         ));
 
         // Step 2: fetch offers
-        let offers_resp = http_iface::call(http_iface::Request {
+        let offers_resp = http_iface::call(&http_iface::Request {
             method: http_iface::Verb::Get,
             url: alloc::format!(
                 "{DUFFEL_BASE}/air/offers?offer_request_id={offer_request_id}&max_connections=0"
@@ -142,9 +142,11 @@ pub fn search_offers(req: SearchOffersReq) -> Result<SearchOffersResp, String> {
 
 #[cfg(target_arch = "wasm32")]
 fn get_api_key() -> Result<alloc::string::String, alloc::string::String> {
-    let bytes = kv_store::get("secrets", b"duffel_api_key")
+    let tid = tenant_context::tenant_did();
+    let map_name = alloc::format!("z:{}:secrets", hex::encode(&tid));
+    let bytes = kv_store::get(&map_name, b"duffel_api_key")
         .map_err(|e| alloc::format!("kv read: {e}"))?
-        .ok_or("duffel_api_key not found in secrets KV map — populate it via the tenant SDK before use")?;
+        .ok_or("duffel_api_key not found in z:<tid>:secrets — populate it via the tenant SDK before use")?;
     alloc::string::String::from_utf8(bytes).map_err(|e| e.to_string())
 }
 

@@ -7,9 +7,10 @@
 ///   - http:           synchronous Duffel API calls (search + book)
 ///
 /// Note: http requires the `Http` HostCapability to be granted at admit time.
-/// The Duffel API key is stored in the z: KV map `credentials` under the key
-/// `duffel_api_key`. This map is created and populated by the tenant SDK
-/// before the contract runs — no secret interface is needed.
+/// The Duffel API key is stored in the z: KV map `z:<tid>:secrets` under the key
+/// `duffel_api_key`. The contract builds the full map name at runtime using
+/// `tenant-context.tenant-did()`. The map is created and populated by the
+/// tenant SDK before the contract runs — no secret interface is needed.
 package z:tenant-flight@0.3.0;
 
 world tenant-flight {
