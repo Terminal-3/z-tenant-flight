@@ -123,7 +123,7 @@ pub fn book_offer(req: BookOfferReq) -> Result<Booking, String> {
         let status = order["data"]["payment_status"]["awaiting_payment"]
             .as_bool()
             .map(|b| if b { "awaiting_payment" } else { "confirmed" })
-            .unwrap_or("confirmed")
+            .ok_or("Duffel response missing payment_status.awaiting_payment")?
             .to_string();
 
         let _ = logging::info(&alloc::format!(
