@@ -23,23 +23,23 @@ world tenant-flight {
 }
 
 interface contracts {
-    /// Envelope sent by the T3n node for every tenant contract call.
-    /// `input`   — JSON-serialized request payload specific to the function.
-    /// `context` — JSON-serialized DynamicContext (node-minted, trusted).
-    /// `user-profile` is intentionally absent: tenant contracts have no
-    /// access to encrypted user profiles in v1 and must not receive them.
-    record tenant-input {
-        input:   option<list<u8>>,
-        context: option<list<u8>>,
+    /// Standard 3-field envelope used by all contracts callable from the node.
+    /// `input`        — JSON-serialized request payload specific to the function.
+    /// `user-profile` — always None for tenant contracts (hardcoded at dispatch).
+    /// `context`      — JSON-serialized DynamicContext (node-minted, trusted).
+    record generic-input {
+        input:        option<list<u8>>,
+        user-profile: option<list<u8>>,
+        context:      option<list<u8>>,
     }
 
     /// Search Duffel for available flights and return a list of offers.
     /// Input  (JSON): { origin, destination, departure_date, cabin_class, adult_count }
     /// Output (JSON): { offers: [{ id, total_amount, total_currency, expires_at }] }
-    search-offers: func(req: tenant-input) -> result<list<u8>, string>;
+    search-offers: func(req: generic-input) -> result<list<u8>, string>;
 
     /// Book the selected offer. Returns booking ID and PNR.
     /// Input  (JSON): { offer_id, passengers: [Passenger], total_amount, total_currency }
     /// Output (JSON): { id, pnr, status }
-    book-offer: func(req: tenant-input) -> result<list<u8>, string>;
+    book-offer: func(req: generic-input) -> result<list<u8>, string>;
 }
