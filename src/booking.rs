@@ -163,13 +163,14 @@ fn get_api_key() -> Result<alloc::string::String, alloc::string::String> {
 fn duffel_headers(
     api_key: &str,
 ) -> alloc::vec::Vec<(alloc::string::String, alloc::string::String)> {
+    // Content-Type is set automatically by the host HTTP function via
+    // .json() — sending it explicitly creates a duplicate that Duffel rejects.
     alloc::vec![
         (
             "Authorization".to_string(),
             alloc::format!("Bearer {api_key}"),
         ),
         ("Duffel-Version".to_string(), DUFFEL_VERSION.to_string()),
-        ("Content-Type".to_string(), "application/json".to_string()),
         ("Accept".to_string(), "application/json".to_string()),
     ]
 }
