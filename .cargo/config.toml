@@ -1,0 +1,6 @@
+# Increase the WASM call stack from the default ~64 KB to 2 MB.
+# serde_json uses recursive descent to parse JSON, and Duffel offer responses
+# are deeply nested (offer → slices → segments → passengers → amenities …).
+# Without this the WASM module traps with a stack-overflow backtrace.
+[target.wasm32-wasip1]
+rustflags = ["-C", "link-arg=-z", "-C", "link-arg=stack-size=2097152"]
