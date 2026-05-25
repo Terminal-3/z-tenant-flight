@@ -2,6 +2,7 @@
 
 #[derive(serde::Deserialize)]
 pub struct Passenger {
+    pub title: String,
     pub given_name: String,
     pub family_name: String,
     pub date_of_birth: String,
@@ -69,6 +70,7 @@ fn book_offer_wasm(req: BookOfferReq) -> Result<Booking, String> {
         .map(|(i, p)| {
             json!({
                 "id": alloc::format!("passenger_{i}"),
+                "title": p.title,
                 "given_name": p.given_name,
                 "family_name": p.family_name,
                 "born_on": p.date_of_birth,
@@ -184,6 +186,7 @@ mod tests {
         let input = serde_json::to_vec(&serde_json::json!({
             "offer_id": "off_abc123",
             "passengers": [{
+                "title": "ms",
                 "given_name": "Jane",
                 "family_name": "Smith",
                 "date_of_birth": "1990-01-15",

@@ -93,13 +93,10 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
         ));
     }
 
-    // With `return_offers: false` the response is small enough to parse normally.
-    let offer_req_json: serde_json::Value =
-        serde_json::from_slice(&offer_req_resp.payload).map_err(|e| e.to_string())?;
-    let offer_request_id = offer_req_json["data"]["id"]
-        .as_str()
-        .ok_or("offer-request response: missing data.id")?
-        .to_string();
+    // Extract the offer_request ID by scanning raw bytes — no full-JSON parse,
+    // no from_utf8_lossy, no TwoWaySearcher. Safe even if return_offers=false
+    // is ignored and the full 1.7 MB payload arrives.
+    let offer_request_id = extract_offer_request_id(&offer_req_resp.payload)?;
 
     let _ = logging::info(&alloc::format!(
         "Duffel offer request created: {offer_request_id}"
@@ -191,6 +188,28 @@ fn build_passenger_count(adult_count: u32) -> alloc::vec::Vec<serde_json::Value>
         .collect()
 }
 
+/// Scan raw bytes for the Duffel offer_request ID (prefix `orfr_`).
+///
+/// Avoids `from_utf8_lossy` + `TwoWaySearcher` which panics inside WASM when
+/// the full 1.7 MB offer-request response is present.
+fn extract_offer_request_id(
+    payload: &[u8],
+) -> Result<alloc::string::String, alloc::string::String> {
+    let needle = b"\"orfr_";
+    let pos = payload
+        .windows(needle.len())
+        .position(|w| w == needle)
+        .ok_or("offer-request response: orfr_ id not found")?;
+    let value_start = pos + 1; // skip the opening quote
+    let rest = &payload[value_start..];
+    let value_end = rest
+        .iter()
+        .position(|&b| b == b'"')
+        .ok_or("offer-request response: unterminated orfr_ id")?;
+    alloc::string::String::from_utf8(rest[..value_end].to_vec())
+        .map_err(|e| alloc::format!("offer-request id utf8: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,5 +236,19 @@ mod tests {
         let result = search_offers(b"not json");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("bad input"));
+    }
+
+    #[test]
+    fn extract_offer_request_id_finds_id() {
+        let payload = br#"{"data":{"id":"orfr_0000A3lFVQQ3PHCR4N0YD2","live_mode":false}}"#;
+        let id = extract_offer_request_id(payload).unwrap();
+        assert_eq!(id, "orfr_0000A3lFVQQ3PHCR4N0YD2");
+    }
+
+    #[test]
+    fn extract_offer_request_id_missing_returns_err() {
+        let payload = br#"{"data":{"id":"invalid_prefix_abc"}}"#;
+        let err = extract_offer_request_id(payload).unwrap_err();
+        assert!(err.contains("orfr_ id not found"));
     }
 }
