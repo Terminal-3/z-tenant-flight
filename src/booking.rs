@@ -111,14 +111,9 @@ fn book_offer_wasm(req: BookOfferReq) -> Result<Booking, String> {
     .map_err(|e| alloc::format!("duffel create-order: {e}"))?;
 
     if resp.code != 200 && resp.code != 201 {
-        // Log full body inside the enclave; do NOT forward it — it may contain PII.
-        let _ = logging::error(&alloc::format!(
-            "Duffel create-order HTTP {}: {}",
-            resp.code,
-            alloc::string::String::from_utf8_lossy(&resp.payload)
-        ));
+        let body = alloc::string::String::from_utf8_lossy(&resp.payload);
         return Err(alloc::format!(
-            "Duffel create-order failed: HTTP {}",
+            "Duffel create-order failed: HTTP {} — {body}",
             resp.code
         ));
     }
