@@ -196,21 +196,21 @@ fn build_passenger_count(adult_count: u32) -> alloc::vec::Vec<serde_json::Value>
         .collect()
 }
 
-/// Extracts `data.id` from a Duffel JSON response body without recursing
-/// into the full structure. Duffel always places `id` as the first field
-/// inside `"data":{`, so a forward scan is reliable and avoids serde_json
-/// recursive descent on multi-megabyte offer payloads.
+/// Extracts the offer-request ID from a Duffel `/air/offer_requests` response
+/// without recursing into the full JSON structure.
+///
+/// Duffel's offer-request IDs always carry the `orfr_` prefix, which is
+/// unique within the response — no nested offer, slice, or segment ID uses
+/// it. A literal scan for `"orfr_` avoids serde_json recursive descent on
+/// the ~1.7 MB payload that Duffel embeds all inline offers in.
 fn extract_data_id(payload: &[u8]) -> Option<alloc::string::String> {
     let s = alloc::string::String::from_utf8_lossy(payload);
-    // Locate the "data": object opening.
-    let data_pos = s.find(r#""data":{"#).or_else(|| s.find(r#""data": {"#))?;
-    // Within that prefix, find the first "id":"<value>" pair.
-    let after_data = &s[data_pos..];
-    let id_marker = r#""id":""#;
-    let id_pos = after_data.find(id_marker)?;
-    let value_start = id_pos + id_marker.len();
-    let value_end = after_data[value_start..].find('"')?;
-    Some(after_data[value_start..value_start + value_end].to_string())
+    // Find the opening quote immediately before the "orfr_" value.
+    let needle = "\"orfr_";
+    let pos = s.find(needle)?;
+    let value_start = pos + 1; // skip the opening quote, land on 'o'
+    let value_end = s[value_start..].find('"')?;
+    Some(s[value_start..value_start + value_end].to_string())
 }
 
 #[cfg(test)]
@@ -218,19 +218,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extract_data_id_parses_offer_request_id() {
-        let payload = br#"{"data":{"id":"orfr_abc123","cabin_class":"economy","offers":[]}}"#;
+    fn extract_data_id_finds_orfr_prefix() {
+        // id is not the first field — mirrors real Duffel response ordering
+        let payload = br#"{"data":{"slices":[],"passengers":[],"offers":[{"id":"off_abc"}],"id":"orfr_abc123"}}"#;
         assert_eq!(extract_data_id(payload).as_deref(), Some("orfr_abc123"));
     }
 
     #[test]
     fn extract_data_id_handles_space_after_colon() {
-        let payload = br#"{"data": {"id":"orfr_xyz","offers":[]}}"#;
+        let payload = br#"{"data": {"id": "orfr_xyz","offers":[]}}"#;
         assert_eq!(extract_data_id(payload).as_deref(), Some("orfr_xyz"));
     }
 
     #[test]
-    fn extract_data_id_returns_none_on_missing_id() {
+    fn extract_data_id_returns_none_when_no_orfr() {
         let payload = br#"{"data":{"cabin_class":"economy"}}"#;
         assert_eq!(extract_data_id(payload), None);
     }
