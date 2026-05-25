@@ -61,9 +61,8 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
     let api_key = get_api_key()?;
 
     // Step 1: create offer request.
-    // `return_offers: false` tells Duffel to omit the inline offers array so
-    // the response is a small JSON object (~2 KB) rather than ~1.7 MB. We
-    // collect offers separately in step 2 via GET /air/offers.
+    // `return_offers=false` is a QUERY PARAMETER — Duffel ignores it if put in
+    // the body. With it the response is ~2 KB instead of ~1.7 MB.
     let offer_request_body = json!({
         "data": {
             "slices": [{
@@ -73,13 +72,12 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
             }],
             "passengers": build_passenger_count(req.adult_count),
             "cabin_class": req.cabin_class,
-            "return_offers": false,
         }
     });
 
     let offer_req_resp = http_iface::call(&http_iface::Request {
         method: http_iface::Verb::Post,
-        url: alloc::format!("{DUFFEL_BASE}/air/offer_requests"),
+        url: alloc::format!("{DUFFEL_BASE}/air/offer_requests?return_offers=false"),
         headers: Some(duffel_headers(&api_key)),
         payload: Some(serde_json::to_vec(&offer_request_body).map_err(|e| e.to_string())?),
     })
@@ -93,7 +91,16 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
         ));
     }
 
-    // With `return_offers: false` the response is ~2 KB — safe to parse with serde_json.
+    // Guard: if Duffel ignores return_offers=false the response is ~1.7 MB and
+    // serde_json will OOM inside WASM. 64 KB is well above the ~2 KB we expect.
+    const MAX_OFFER_REQ_BYTES: usize = 65_536;
+    if offer_req_resp.payload.len() > MAX_OFFER_REQ_BYTES {
+        return Err(alloc::format!(
+            "offer-request response too large ({} bytes) — return_offers=false may be ignored",
+            offer_req_resp.payload.len()
+        ));
+    }
+
     let offer_req_json: serde_json::Value =
         serde_json::from_slice(&offer_req_resp.payload).map_err(|e| e.to_string())?;
     let offer_request_id = offer_req_json["data"]["id"]
