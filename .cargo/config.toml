@@ -1,3 +1,2 @@
-# No custom flags needed — WASM stack depth is controlled by the host
-# (wasmtime max_wasm_stack in node/config/default.toml), not by the
-# WASM binary's initial stack pointer.
+[build]
+target = "wasm32-wasip2"

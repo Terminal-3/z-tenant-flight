@@ -1,7 +1,7 @@
 //! search_offers: calls Duffel offer search API and returns available flights.
 //!
 //! Duffel search is two calls:
-//!   1. POST /air/offer-requests → returns offer_request_id
+//!   1. POST /air/offer_requests?return_offers=false → returns a small response with offer_request_id
 //!   2. GET /air/offers?offer_request_id=<id> → returns offer list
 
 #[derive(serde::Deserialize)]
@@ -60,7 +60,10 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
 
     let api_key = get_api_key()?;
 
-    // Step 1: create offer request
+    // Step 1: create offer request.
+    // `return_offers: false` tells Duffel to omit the inline offers array so
+    // the response is a small JSON object (~2 KB) rather than ~1.7 MB. We
+    // collect offers separately in step 2 via GET /air/offers.
     let offer_request_body = json!({
         "data": {
             "slices": [{
@@ -70,6 +73,7 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
             }],
             "passengers": build_passenger_count(req.adult_count),
             "cabin_class": req.cabin_class,
+            "return_offers": false,
         }
     });
 
@@ -89,18 +93,19 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
         ));
     }
 
-    // Extract data.id without full JSON parse — Duffel embeds all offers
-    // inline in this response (~1-2 MB). serde_json recursive descent on
-    // that payload overflows the wasmtime call stack regardless of the
-    // configured limit. We only need the id; a byte scan is sufficient.
-    let offer_request_id = extract_data_id(&offer_req_resp.payload)
-        .ok_or("offer-request response: missing data.id")?;
+    // With `return_offers: false` the response is small enough to parse normally.
+    let offer_req_json: serde_json::Value =
+        serde_json::from_slice(&offer_req_resp.payload).map_err(|e| e.to_string())?;
+    let offer_request_id = offer_req_json["data"]["id"]
+        .as_str()
+        .ok_or("offer-request response: missing data.id")?
+        .to_string();
 
     let _ = logging::info(&alloc::format!(
         "Duffel offer request created: {offer_request_id}"
     ));
 
-    // Step 2: fetch offers (limit=5 to cap response size in WASM)
+    // Step 2: fetch offers
     let offers_resp = http_iface::call(&http_iface::Request {
         method: http_iface::Verb::Get,
         url: alloc::format!(
@@ -111,12 +116,6 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
     })
     .map_err(|e| alloc::format!("duffel offers: {e}"))?;
 
-    let _ = logging::info(&alloc::format!(
-        "Duffel offers HTTP {}: body_len={}",
-        offers_resp.code,
-        offers_resp.payload.len()
-    ));
-
     if offers_resp.code != 200 {
         let body = alloc::string::String::from_utf8_lossy(&offers_resp.payload);
         return Err(alloc::format!(
@@ -125,12 +124,8 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
         ));
     }
 
-    let _ = logging::info("Duffel offers: parsing JSON");
-
     let offers_json: serde_json::Value =
         serde_json::from_slice(&offers_resp.payload).map_err(|e| e.to_string())?;
-
-    let _ = logging::info("Duffel offers: extracting data array");
 
     let offers: Result<alloc::vec::Vec<Offer>, alloc::string::String> = offers_json["data"]
         .as_array()
@@ -196,45 +191,9 @@ fn build_passenger_count(adult_count: u32) -> alloc::vec::Vec<serde_json::Value>
         .collect()
 }
 
-/// Extracts the offer-request ID from a Duffel `/air/offer_requests` response
-/// without recursing into the full JSON structure.
-///
-/// Duffel's offer-request IDs always carry the `orfr_` prefix, which is
-/// unique within the response — no nested offer, slice, or segment ID uses
-/// it. A literal scan for `"orfr_` avoids serde_json recursive descent on
-/// the ~1.7 MB payload that Duffel embeds all inline offers in.
-fn extract_data_id(payload: &[u8]) -> Option<alloc::string::String> {
-    let s = alloc::string::String::from_utf8_lossy(payload);
-    // Find the opening quote immediately before the "orfr_" value.
-    let needle = "\"orfr_";
-    let pos = s.find(needle)?;
-    let value_start = pos + 1; // skip the opening quote, land on 'o'
-    let value_end = s[value_start..].find('"')?;
-    Some(s[value_start..value_start + value_end].to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn extract_data_id_finds_orfr_prefix() {
-        // id is not the first field — mirrors real Duffel response ordering
-        let payload = br#"{"data":{"slices":[],"passengers":[],"offers":[{"id":"off_abc"}],"id":"orfr_abc123"}}"#;
-        assert_eq!(extract_data_id(payload).as_deref(), Some("orfr_abc123"));
-    }
-
-    #[test]
-    fn extract_data_id_handles_space_after_colon() {
-        let payload = br#"{"data": {"id": "orfr_xyz","offers":[]}}"#;
-        assert_eq!(extract_data_id(payload).as_deref(), Some("orfr_xyz"));
-    }
-
-    #[test]
-    fn extract_data_id_returns_none_when_no_orfr() {
-        let payload = br#"{"data":{"cabin_class":"economy"}}"#;
-        assert_eq!(extract_data_id(payload), None);
-    }
 
     #[test]
     fn search_offers_non_wasm_returns_err() {
