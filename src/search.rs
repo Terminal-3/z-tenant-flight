@@ -82,8 +82,9 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
     .map_err(|e| alloc::format!("duffel offer-request: {e}"))?;
 
     if offer_req_resp.code != 201 {
+        let body = alloc::string::String::from_utf8_lossy(&offer_req_resp.payload);
         return Err(alloc::format!(
-            "Duffel offer-request failed: HTTP {}",
+            "Duffel offer-request failed: HTTP {} — {body}",
             offer_req_resp.code
         ));
     }
@@ -111,8 +112,9 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
     .map_err(|e| alloc::format!("duffel offers: {e}"))?;
 
     if offers_resp.code != 200 {
+        let body = alloc::string::String::from_utf8_lossy(&offers_resp.payload);
         return Err(alloc::format!(
-            "Duffel offers fetch failed: HTTP {}",
+            "Duffel offers fetch failed: HTTP {} — {body}",
             offers_resp.code
         ));
     }
