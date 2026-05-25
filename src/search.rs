@@ -89,12 +89,12 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
         ));
     }
 
-    let offer_req_json: serde_json::Value =
-        serde_json::from_slice(&offer_req_resp.payload).map_err(|e| e.to_string())?;
-    let offer_request_id = offer_req_json["data"]["id"]
-        .as_str()
-        .ok_or("missing offer_request_id")?
-        .to_string();
+    // Extract data.id without full JSON parse — Duffel embeds all offers
+    // inline in this response (~1-2 MB). serde_json recursive descent on
+    // that payload overflows the wasmtime call stack regardless of the
+    // configured limit. We only need the id; a byte scan is sufficient.
+    let offer_request_id = extract_data_id(&offer_req_resp.payload)
+        .ok_or("offer-request response: missing data.id")?;
 
     let _ = logging::info(&alloc::format!(
         "Duffel offer request created: {offer_request_id}"
@@ -196,9 +196,44 @@ fn build_passenger_count(adult_count: u32) -> alloc::vec::Vec<serde_json::Value>
         .collect()
 }
 
+/// Extracts `data.id` from a Duffel JSON response body without recursing
+/// into the full structure. Duffel always places `id` as the first field
+/// inside `"data":{`, so a forward scan is reliable and avoids serde_json
+/// recursive descent on multi-megabyte offer payloads.
+fn extract_data_id(payload: &[u8]) -> Option<alloc::string::String> {
+    let s = alloc::string::String::from_utf8_lossy(payload);
+    // Locate the "data": object opening.
+    let data_pos = s.find(r#""data":{"#).or_else(|| s.find(r#""data": {"#))?;
+    // Within that prefix, find the first "id":"<value>" pair.
+    let after_data = &s[data_pos..];
+    let id_marker = r#""id":""#;
+    let id_pos = after_data.find(id_marker)?;
+    let value_start = id_pos + id_marker.len();
+    let value_end = after_data[value_start..].find('"')?;
+    Some(after_data[value_start..value_start + value_end].to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extract_data_id_parses_offer_request_id() {
+        let payload = br#"{"data":{"id":"orfr_abc123","cabin_class":"economy","offers":[]}}"#;
+        assert_eq!(extract_data_id(payload).as_deref(), Some("orfr_abc123"));
+    }
+
+    #[test]
+    fn extract_data_id_handles_space_after_colon() {
+        let payload = br#"{"data": {"id":"orfr_xyz","offers":[]}}"#;
+        assert_eq!(extract_data_id(payload).as_deref(), Some("orfr_xyz"));
+    }
+
+    #[test]
+    fn extract_data_id_returns_none_on_missing_id() {
+        let payload = br#"{"data":{"cabin_class":"economy"}}"#;
+        assert_eq!(extract_data_id(payload), None);
+    }
 
     #[test]
     fn search_offers_non_wasm_returns_err() {
