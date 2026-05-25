@@ -1,4 +1,4 @@
-//! z-tenant-flight v0.2.0 — Duffel flight booking showcase (MAT-1572).
+//! z-tenant-flight v0.3.0 — Duffel flight booking showcase (MAT-1572).
 //!
 //! Demonstrates the z-space tenant model:
 //!   - `search-offers`: calls Duffel offer search API inside the TEE.
@@ -50,15 +50,17 @@ struct Component;
 #[cfg(target_arch = "wasm32")]
 impl exports::z::tenant_flight::contracts::Guest for Component {
     fn search_offers(
-        req: exports::z::tenant_flight::contracts::SearchOffersReq,
-    ) -> Result<exports::z::tenant_flight::contracts::SearchOffersResp, String> {
-        search::search_offers(req)
+        req: exports::z::tenant_flight::contracts::TenantInput,
+    ) -> Result<alloc::vec::Vec<u8>, alloc::string::String> {
+        let input = req.input.ok_or("search-offers: missing input")?;
+        search::search_offers(&input)
     }
 
     fn book_offer(
-        req: exports::z::tenant_flight::contracts::BookOfferReq,
-    ) -> Result<exports::z::tenant_flight::contracts::Booking, String> {
-        booking::book_offer(req)
+        req: exports::z::tenant_flight::contracts::TenantInput,
+    ) -> Result<alloc::vec::Vec<u8>, alloc::string::String> {
+        let input = req.input.ok_or("book-offer: missing input")?;
+        booking::book_offer(&input)
     }
 }
 
