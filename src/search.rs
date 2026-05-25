@@ -100,16 +100,22 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
         "Duffel offer request created: {offer_request_id}"
     ));
 
-    // Step 2: fetch offers
+    // Step 2: fetch offers (limit=5 to cap response size in WASM)
     let offers_resp = http_iface::call(&http_iface::Request {
         method: http_iface::Verb::Get,
         url: alloc::format!(
-            "{DUFFEL_BASE}/air/offers?offer_request_id={offer_request_id}&max_connections=0"
+            "{DUFFEL_BASE}/air/offers?offer_request_id={offer_request_id}&max_connections=0&limit=5"
         ),
         headers: Some(duffel_headers(&api_key)),
         payload: None,
     })
     .map_err(|e| alloc::format!("duffel offers: {e}"))?;
+
+    let _ = logging::info(&alloc::format!(
+        "Duffel offers HTTP {}: body_len={}",
+        offers_resp.code,
+        offers_resp.payload.len()
+    ));
 
     if offers_resp.code != 200 {
         let body = alloc::string::String::from_utf8_lossy(&offers_resp.payload);
@@ -119,8 +125,12 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
         ));
     }
 
+    let _ = logging::info("Duffel offers: parsing JSON");
+
     let offers_json: serde_json::Value =
         serde_json::from_slice(&offers_resp.payload).map_err(|e| e.to_string())?;
+
+    let _ = logging::info("Duffel offers: extracting data array");
 
     let offers: Result<alloc::vec::Vec<Offer>, alloc::string::String> = offers_json["data"]
         .as_array()
@@ -146,6 +156,8 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
         })
         .collect();
     let offers = offers?;
+
+    let _ = logging::info(&alloc::format!("Duffel offers: {} offers parsed", offers.len()));
 
     Ok(SearchOffersResp { offers })
 }
