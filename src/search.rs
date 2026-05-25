@@ -19,6 +19,8 @@ pub struct Offer {
     pub total_amount: String,
     pub total_currency: String,
     pub expires_at: String,
+    /// Duffel-assigned passenger IDs for this offer (must be used verbatim in book-offer).
+    pub passenger_ids: alloc::vec::Vec<alloc::string::String>,
 }
 
 #[derive(serde::Serialize)]
@@ -149,11 +151,18 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
                 .ok_or("offer missing total_currency")?
                 .to_string();
             let expires_at = o["expires_at"].as_str().unwrap_or("").to_string();
+            let passenger_ids = o["passengers"]
+                .as_array()
+                .unwrap_or(&alloc::vec![])
+                .iter()
+                .filter_map(|p| p["id"].as_str().map(|s| s.to_string()))
+                .collect();
             Ok(Offer {
                 id,
                 total_amount,
                 total_currency,
                 expires_at,
+                passenger_ids,
             })
         })
         .collect();

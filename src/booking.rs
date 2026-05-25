@@ -17,6 +17,8 @@ pub struct Passenger {
 #[derive(serde::Deserialize)]
 pub struct BookOfferReq {
     pub offer_id: String,
+    /// Duffel-assigned passenger IDs from the offer (returned by search-offers).
+    pub passenger_ids: Vec<String>,
     pub passengers: Vec<Passenger>,
     pub total_amount: String,
     pub total_currency: String,
@@ -63,13 +65,21 @@ fn book_offer_wasm(req: BookOfferReq) -> Result<Booking, String> {
 
     let api_key = get_api_key()?;
 
+    if req.passenger_ids.len() != req.passengers.len() {
+        return Err(alloc::format!(
+            "passenger_ids length ({}) must match passengers length ({})",
+            req.passenger_ids.len(),
+            req.passengers.len()
+        ));
+    }
+
     let passengers_payload: alloc::vec::Vec<serde_json::Value> = req
         .passengers
         .iter()
         .enumerate()
         .map(|(i, p)| {
             json!({
-                "id": alloc::format!("passenger_{i}"),
+                "id": req.passenger_ids[i],
                 "title": p.title,
                 "given_name": p.given_name,
                 "family_name": p.family_name,
@@ -111,9 +121,13 @@ fn book_offer_wasm(req: BookOfferReq) -> Result<Booking, String> {
     .map_err(|e| alloc::format!("duffel create-order: {e}"))?;
 
     if resp.code != 200 && resp.code != 201 {
-        let body = alloc::string::String::from_utf8_lossy(&resp.payload);
+        let _ = logging::error(&alloc::format!(
+            "Duffel create-order HTTP {}: {}",
+            resp.code,
+            alloc::string::String::from_utf8_lossy(&resp.payload)
+        ));
         return Err(alloc::format!(
-            "Duffel create-order failed: HTTP {} — {body}",
+            "Duffel create-order failed: HTTP {}",
             resp.code
         ));
     }
@@ -180,6 +194,7 @@ mod tests {
     fn book_offer_non_wasm_returns_err() {
         let input = serde_json::to_vec(&serde_json::json!({
             "offer_id": "off_abc123",
+            "passenger_ids": ["pas_abc123"],
             "passengers": [{
                 "title": "ms",
                 "given_name": "Jane",
