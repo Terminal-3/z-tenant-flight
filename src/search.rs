@@ -75,7 +75,7 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
 
     let offer_req_resp = http_iface::call(&http_iface::Request {
         method: http_iface::Verb::Post,
-        url: alloc::format!("{DUFFEL_BASE}/air/offer-requests"),
+        url: alloc::format!("{DUFFEL_BASE}/air/offer_requests"),
         headers: Some(duffel_headers(&api_key)),
         payload: Some(serde_json::to_vec(&offer_request_body).map_err(|e| e.to_string())?),
     })
