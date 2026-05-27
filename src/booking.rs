@@ -57,26 +57,37 @@ fn book_offer_wasm(req: BookOfferReq) -> Result<Booking, String> {
 
     let api_key = get_api_key()?;
 
-    // PII fields are `{{profile.<field>}}` markers — the host substitutes the
-    // calling user's profile values on the host stack, after this contract has
-    // serialised the body and before the outbound Duffel call. The contract
-    // never holds the plaintext.
+    // The `{{profile.<field>}}` markers are resolved host-side from the calling
+    // user's profile via http-with-placeholders, after this contract serialises
+    // the body and before the outbound Duffel call — the contract never holds
+    // the plaintext. Marker field names match the Trinity user-profile schema
+    // (MAT-1627 field mapping): `given_name`←`first_name`, `family_name`←
+    // `last_name`; `date_of_birth` and `gender` map 1:1.
+    //
+    // DEMO-HARDCODED fields: the Trinity user-profile schema carries no
+    // passport / nationality / title fields, and `email` / `phone` are not in
+    // the raw stored profile blob (projected from `verified_contacts` at
+    // read time, so unreachable by the flat placeholder resolver). For this
+    // demo we send fixed Duffel-sandbox values for those. Productionising
+    // requires extending the profile schema — see the demo README "Known gap".
     let order_body = json!({
         "data": {
             "type": "instant",
             "selected_offers": [req.offer_id],
             "passengers": [{
                 "id": req.passenger_id,
-                "title": "{{profile.title}}",
-                "given_name": "{{profile.given_name}}",
-                "family_name": "{{profile.family_name}}",
+                // Resolved from the user's profile (privacy-preserving path):
+                "given_name": "{{profile.first_name}}",
+                "family_name": "{{profile.last_name}}",
                 "born_on": "{{profile.date_of_birth}}",
-                "passport_number": "{{profile.passport_number}}",
-                "passport_country_code": "{{profile.nationality}}",
-                "passport_expiry_date": "{{profile.passport_expiry}}",
                 "gender": "{{profile.gender}}",
-                "email": "{{profile.email}}",
-                "phone_number": "{{profile.phone}}",
+                // Demo-hardcoded (no profile source — see note above):
+                "title": "mr",
+                "passport_number": "X12345678",
+                "passport_country_code": "GB",
+                "passport_expiry_date": "2030-01-01",
+                "email": "demo.traveller@terminal3.io",
+                "phone_number": "+442071234567",
             }],
             "payments": [{
                 "type": "balance",
