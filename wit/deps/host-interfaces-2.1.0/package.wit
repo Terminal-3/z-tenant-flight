@@ -42,6 +42,71 @@ interface http {
   call: func(request: request) -> result<response, string>;
 }
 
+/// MAT-1627 — PII-safe HTTP for tenant contracts (T3-TS-029 §6.2).
+///
+/// Body bytes may contain `{{profile.<field>}}` markers that the host
+/// substitutes from the calling user's profile at dispatch time. The
+/// contract WASM never holds plaintext PII — substitution happens on
+/// the host stack between manifest validation and the outbound
+/// reqwest call, so a compromised contract that tries to read the
+/// substituted bytes back finds only the unresolved template.
+///
+/// Access control is the agent delegation grant (`agent-auth-update`,
+/// scoped per-agent/per-contract/per-function): the grant gates which
+/// contract may act on the user's profile. The host enforces only the
+/// hard `profile`-namespace gate — `{{secrets.<x>}}` and any namespace
+/// other than `profile` is rejected with `placeholder-denied`.
+///
+/// Egress is gated by the existing per-contract `http_allow_list`
+/// (same allowlist plain `http` uses), so a contract opted into both
+/// `http` and `http-with-placeholders` shares one egress policy.
+interface http-with-placeholders {
+  enum verb {
+    get,
+    post,
+    put,
+    patch,
+    delete
+  }
+
+  record request {
+    method: verb,
+    url: string,
+    headers: option<list<tuple<string, string>>>,
+    payload: option<list<u8>>
+  }
+
+  record response {
+    code: u16,
+    payload: list<u8>
+  }
+
+  variant http-error {
+    /// Target host is not on the contract's `http_allow_list`. Payload
+    /// is the offending host string for operator diagnostics.
+    egress-denied(string),
+    /// A placeholder referenced a namespace other than `profile`, or
+    /// used a malformed marker (nested / non-snake-case field). Payload
+    /// identifies the offending marker.
+    placeholder-denied(string),
+    /// A `{{profile.<field>}}` marker resolved to no value on the
+    /// calling user's profile. Payload names the field. Distinct from
+    /// `placeholder-denied` so the contract can surface
+    /// "your profile is missing X" UX rather than "you're not allowed
+    /// to read X".
+    placeholder-unknown(string),
+    /// The current execution has no `pii_did` bound (admin / bootstrap /
+    /// unauthenticated path). No wall-clock fallback, no admin override
+    /// — there is no user profile to substitute from.
+    placeholder-no-user-context,
+    /// Upstream HTTP failure (transport, TLS, parse). Payload is a
+    /// short reason string suitable for logging; PII is NEVER included.
+    upstream-error(string),
+  }
+
+  call: func(request: request) -> result<response, http-error>;
+}
+
 interface logging {
   /// Log a message to the console
   info: func(message: string) -> result<_, string>;
@@ -615,6 +680,7 @@ interface state {
 
 world interfaces {
   export http;
+  export http-with-placeholders;
   export logging;
   export signing;
   export user-profile;

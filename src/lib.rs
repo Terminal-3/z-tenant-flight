@@ -1,20 +1,28 @@
-//! z-tenant-flight v0.3.0 — Duffel flight booking showcase (MAT-1572).
+//! z-tenant-flight v0.4.0 — Duffel flight booking showcase (MAT-1572, MAT-1627).
 //!
 //! Demonstrates the z-space tenant model:
-//!   - `search-offers`: calls Duffel offer search API inside the TEE.
-//!   - `book-offer`: calls Duffel create-order API inside the TEE.
+//!   - `search-offers`: calls Duffel offer search API inside the TEE (no PII).
+//!   - `book-offer`: calls Duffel create-order API via the host's
+//!     `http-with-placeholders` interface. Passenger PII is NEVER passed in as
+//!     a contract argument: the contract templates `{{profile.<field>}}`
+//!     markers into the order body and the host resolves them from the calling
+//!     user's profile at dispatch time, so plaintext PII never enters WASM.
 //!
 //! The Duffel API key is read from the z: KV map `secrets` (key:
 //! `duffel_api_key`). This map is created and populated by the tenant SDK
-//! before the contract runs. PII is passed in by the agent, used inside the
-//! enclave to call Duffel, and never returned to the agent. Only the booking
-//! ID and PNR cross the WIT boundary back to the caller.
+//! before the contract runs. Only the booking ID and PNR cross the WIT
+//! boundary back to the caller.
 //!
 //! # Host-capability requirements
 //!
-//! Declare in manifest:
+//! Declare in manifest (access to a user's profile is gated by the on-chain
+//! agent delegation grant, not a per-field allowlist):
 //! ```json
-//! { "host_capabilities": ["kv_store", "logging", "tenant_context", "http"] }
+//! {
+//!   "host_capabilities": [
+//!     "kv_store", "logging", "tenant_context", "http", "http_with_placeholders"
+//!   ]
+//! }
 //! ```
 //!
 //! # Setup
@@ -30,7 +38,7 @@
 
 extern crate alloc;
 
-pub const CONTRACT_VERSION: &str = "0.3.0";
+pub const CONTRACT_VERSION: &str = "0.4.0";
 
 wit_bindgen::generate!({
     world: "tenant-flight",
@@ -81,7 +89,7 @@ mod tests {
     }
 
     #[test]
-    fn contract_version_is_v0_3_0() {
-        assert_eq!(CONTRACT_VERSION, "0.3.0");
+    fn contract_version_is_v0_4_0() {
+        assert_eq!(CONTRACT_VERSION, "0.4.0");
     }
 }
