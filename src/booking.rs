@@ -1,25 +1,17 @@
 //! book_offer: calls Duffel create-order API and returns the PNR.
-
-#[derive(serde::Deserialize)]
-pub struct Passenger {
-    pub title: String,
-    pub given_name: String,
-    pub family_name: String,
-    pub date_of_birth: String,
-    pub passport_number: String,
-    pub nationality: String,
-    pub passport_expiry: String,
-    pub gender: String,
-    pub email: String,
-    pub phone: String,
-}
+//!
+//! Passenger PII (name, DOB, passport, contact) is NEVER passed in as a
+//! contract argument. The contract templates `{{profile.<field>}}` markers
+//! into the Duffel order body and the host's `http-with-placeholders`
+//! interface resolves them from the calling user's profile at dispatch time,
+//! so plaintext PII never enters WASM memory.
 
 #[derive(serde::Deserialize)]
 pub struct BookOfferReq {
     pub offer_id: String,
-    /// Duffel-assigned passenger IDs from the offer (returned by search-offers).
-    pub passenger_ids: Vec<String>,
-    pub passengers: Vec<Passenger>,
+    /// Opaque Duffel-assigned passenger id from the offer (returned by
+    /// search-offers). NOT PII — just the slot the order binds to.
+    pub passenger_id: String,
     pub total_amount: String,
     pub total_currency: String,
 }
@@ -43,7 +35,7 @@ pub fn book_offer(input: &[u8]) -> Result<Vec<u8>, String> {
     #[cfg(target_arch = "wasm32")]
     {
         let booking = book_offer_wasm(req)?;
-        return serde_json::to_vec(&booking).map_err(|e| e.to_string());
+        serde_json::to_vec(&booking).map_err(|e| e.to_string())
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -55,7 +47,7 @@ pub fn book_offer(input: &[u8]) -> Result<Vec<u8>, String> {
 
 #[cfg(target_arch = "wasm32")]
 use crate::host::{
-    interfaces::{http as http_iface, kv_store, logging},
+    interfaces::{http_with_placeholders as hwp, kv_store, logging},
     tenant::tenant_context,
 };
 
@@ -65,40 +57,41 @@ fn book_offer_wasm(req: BookOfferReq) -> Result<Booking, String> {
 
     let api_key = get_api_key()?;
 
-    if req.passenger_ids.len() != req.passengers.len() {
-        return Err(alloc::format!(
-            "passenger_ids length ({}) must match passengers length ({})",
-            req.passenger_ids.len(),
-            req.passengers.len()
-        ));
-    }
-
-    let passengers_payload: alloc::vec::Vec<serde_json::Value> = req
-        .passengers
-        .iter()
-        .enumerate()
-        .map(|(i, p)| {
-            json!({
-                "id": req.passenger_ids[i],
-                "title": p.title,
-                "given_name": p.given_name,
-                "family_name": p.family_name,
-                "born_on": p.date_of_birth,
-                "passport_number": p.passport_number,
-                "passport_country_code": p.nationality,
-                "passport_expiry_date": p.passport_expiry,
-                "gender": p.gender,
-                "email": p.email,
-                "phone_number": p.phone,
-            })
-        })
-        .collect();
-
+    // The `{{profile.<path>}}` markers are resolved host-side from the
+    // calling user's profile via http-with-placeholders, after this contract
+    // serialises the body and before the outbound Duffel call — the contract
+    // never holds the plaintext. Marker paths match the Trinity user-profile
+    // schema (MAT-1627 field mapping): `given_name`←`first_name`,
+    // `family_name`←`last_name`; `date_of_birth` and `gender` map 1:1; the
+    // verified email is reached via the post-MAT-1333 nested path
+    // `verified_contacts.email.value` (the legacy `profile.first_name`-style
+    // fallback handles the single-segment names against the whole-blob shape).
+    //
+    // DEMO-HARDCODED fields: the Trinity user-profile schema carries no
+    // passport / nationality / title fields, and we don't run phone
+    // verification for the demo, so `verified_contacts.phone.value` won't
+    // exist. For those we send fixed Duffel-sandbox values. Productionising
+    // requires extending the profile schema with passport/title and running
+    // SMS OTP for phone — see the demo README "Known gap".
     let order_body = json!({
         "data": {
             "type": "instant",
             "selected_offers": [req.offer_id],
-            "passengers": passengers_payload,
+            "passengers": [{
+                "id": req.passenger_id,
+                // Resolved from the user's profile (privacy-preserving path):
+                "given_name": "{{profile.first_name}}",
+                "family_name": "{{profile.last_name}}",
+                "born_on": "{{profile.date_of_birth}}",
+                "gender": "{{profile.gender}}",
+                "email": "{{profile.verified_contacts.email.value}}",
+                // Demo-hardcoded (no profile source — see note above):
+                "title": "mr",
+                "passport_number": "X12345678",
+                "passport_country_code": "GB",
+                "passport_expiry_date": "2030-01-01",
+                "phone_number": "+442071234567",
+            }],
             "payments": [{
                 "type": "balance",
                 "amount": req.total_amount,
@@ -112,13 +105,13 @@ fn book_offer_wasm(req: BookOfferReq) -> Result<Booking, String> {
         req.offer_id
     ));
 
-    let resp = http_iface::call(&http_iface::Request {
-        method: http_iface::Verb::Post,
+    let resp = hwp::call(&hwp::Request {
+        method: hwp::Verb::Post,
         url: alloc::format!("{DUFFEL_BASE}/air/orders"),
         headers: Some(duffel_headers(&api_key)),
         payload: Some(serde_json::to_vec(&order_body).map_err(|e| e.to_string())?),
     })
-    .map_err(|e| alloc::format!("duffel create-order: {e}"))?;
+    .map_err(|e| alloc::format!("duffel create-order: {}", format_http_error(e)))?;
 
     if resp.code != 200 && resp.code != 201 {
         let _ = logging::error(&alloc::format!(
@@ -160,6 +153,25 @@ fn book_offer_wasm(req: BookOfferReq) -> Result<Booking, String> {
     })
 }
 
+/// Render a typed `http-with-placeholders` error as a contract-facing string.
+/// Never includes resolved PII — only field names and host-side reasons.
+#[cfg(target_arch = "wasm32")]
+fn format_http_error(e: hwp::HttpError) -> alloc::string::String {
+    match e {
+        hwp::HttpError::EgressDenied(host) => alloc::format!("egress denied for host {host}"),
+        hwp::HttpError::PlaceholderDenied(marker) => {
+            alloc::format!("placeholder not permitted: {marker}")
+        }
+        hwp::HttpError::PlaceholderUnknown(field) => {
+            alloc::format!("user profile missing field: {field}")
+        }
+        hwp::HttpError::PlaceholderNoUserContext => {
+            "no user context bound for placeholder resolution".to_string()
+        }
+        hwp::HttpError::UpstreamError(reason) => alloc::format!("upstream: {reason}"),
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 fn get_api_key() -> Result<alloc::string::String, alloc::string::String> {
     let tid = tenant_context::tenant_did();
@@ -194,19 +206,7 @@ mod tests {
     fn book_offer_non_wasm_returns_err() {
         let input = serde_json::to_vec(&serde_json::json!({
             "offer_id": "off_abc123",
-            "passenger_ids": ["pas_abc123"],
-            "passengers": [{
-                "title": "ms",
-                "given_name": "Jane",
-                "family_name": "Smith",
-                "date_of_birth": "1990-01-15",
-                "passport_number": "AB1234567",
-                "nationality": "GB",
-                "passport_expiry": "2030-06-01",
-                "gender": "f",
-                "email": "jane@example.com",
-                "phone": "+441234567890",
-            }],
+            "passenger_id": "pas_abc123",
             "total_amount": "199.00",
             "total_currency": "GBP",
         }))
@@ -221,6 +221,24 @@ mod tests {
     #[test]
     fn book_offer_bad_input_returns_err() {
         let result = book_offer(b"not json");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("bad input"));
+    }
+
+    #[test]
+    fn book_offer_rejects_inline_pii_fields() {
+        // The v0.3.0 shape carried `passengers: [Passenger]` inline. The v0.4.0
+        // shape must reject input that omits the now-required `passenger_id`
+        // even if it carries the old PII block — proving callers can't sneak
+        // PII through the contract argument.
+        let input = serde_json::to_vec(&serde_json::json!({
+            "offer_id": "off_abc123",
+            "passengers": [{ "given_name": "Jane" }],
+            "total_amount": "199.00",
+            "total_currency": "GBP",
+        }))
+        .unwrap();
+        let result = book_offer(&input);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("bad input"));
     }

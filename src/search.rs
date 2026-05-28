@@ -40,7 +40,7 @@ pub fn search_offers(input: &[u8]) -> Result<Vec<u8>, String> {
     #[cfg(target_arch = "wasm32")]
     {
         let resp = search_offers_wasm(req)?;
-        return serde_json::to_vec(&resp).map_err(|e| e.to_string());
+        serde_json::to_vec(&resp).map_err(|e| e.to_string())
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -168,7 +168,10 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
         .collect();
     let offers = offers?;
 
-    let _ = logging::info(&alloc::format!("Duffel offers: {} offers parsed", offers.len()));
+    let _ = logging::info(&alloc::format!(
+        "Duffel offers: {} offers parsed",
+        offers.len()
+    ));
 
     Ok(SearchOffersResp { offers })
 }
@@ -234,5 +237,4 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("bad input"));
     }
-
 }
