@@ -1,6 +1,6 @@
 [package]
 name = "z-tenant-flight"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "Duffel flight booking showcase for Trinity z-space tenants — HTTP search (no PII) + PII-safe booking via host:interfaces/http-with-placeholders"
 license = "MIT"

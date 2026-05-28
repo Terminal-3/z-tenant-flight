@@ -57,19 +57,22 @@ fn book_offer_wasm(req: BookOfferReq) -> Result<Booking, String> {
 
     let api_key = get_api_key()?;
 
-    // The `{{profile.<field>}}` markers are resolved host-side from the calling
-    // user's profile via http-with-placeholders, after this contract serialises
-    // the body and before the outbound Duffel call — the contract never holds
-    // the plaintext. Marker field names match the Trinity user-profile schema
-    // (MAT-1627 field mapping): `given_name`←`first_name`, `family_name`←
-    // `last_name`; `date_of_birth` and `gender` map 1:1.
+    // The `{{profile.<path>}}` markers are resolved host-side from the
+    // calling user's profile via http-with-placeholders, after this contract
+    // serialises the body and before the outbound Duffel call — the contract
+    // never holds the plaintext. Marker paths match the Trinity user-profile
+    // schema (MAT-1627 field mapping): `given_name`←`first_name`,
+    // `family_name`←`last_name`; `date_of_birth` and `gender` map 1:1; the
+    // verified email is reached via the post-MAT-1333 nested path
+    // `verified_contacts.email.value` (the legacy `profile.first_name`-style
+    // fallback handles the single-segment names against the whole-blob shape).
     //
     // DEMO-HARDCODED fields: the Trinity user-profile schema carries no
-    // passport / nationality / title fields, and `email` / `phone` are not in
-    // the raw stored profile blob (projected from `verified_contacts` at
-    // read time, so unreachable by the flat placeholder resolver). For this
-    // demo we send fixed Duffel-sandbox values for those. Productionising
-    // requires extending the profile schema — see the demo README "Known gap".
+    // passport / nationality / title fields, and we don't run phone
+    // verification for the demo, so `verified_contacts.phone.value` won't
+    // exist. For those we send fixed Duffel-sandbox values. Productionising
+    // requires extending the profile schema with passport/title and running
+    // SMS OTP for phone — see the demo README "Known gap".
     let order_body = json!({
         "data": {
             "type": "instant",
@@ -81,12 +84,12 @@ fn book_offer_wasm(req: BookOfferReq) -> Result<Booking, String> {
                 "family_name": "{{profile.last_name}}",
                 "born_on": "{{profile.date_of_birth}}",
                 "gender": "{{profile.gender}}",
+                "email": "{{profile.verified_contacts.email.value}}",
                 // Demo-hardcoded (no profile source — see note above):
                 "title": "mr",
                 "passport_number": "X12345678",
                 "passport_country_code": "GB",
                 "passport_expiry_date": "2030-01-01",
-                "email": "demo.traveller@terminal3.io",
                 "phone_number": "+442071234567",
             }],
             "payments": [{
