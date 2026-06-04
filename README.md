@@ -1,6 +1,6 @@
 # z-tenant-flight
 
-Duffel flight booking showcase for Trinity z-space tenants — v0.3.0.
+Duffel flight booking showcase for Trinity z-namespace tenants — v0.3.0.
 
 A Rust WASM contract that runs inside the Trinity TEE (Trusted Execution Environment) and calls the [Duffel](https://duffel.com) API synchronously via `host:interfaces/http`.
 
@@ -23,7 +23,7 @@ Declare in your contract manifest:
 { "host_capabilities": ["kv_store", "logging", "tenant_context", "http"] }
 ```
 
-The `http` capability enables outbound HTTP via the `tenant-http` linker world (MAT-1571).
+The `http` capability enables outbound HTTP via the `tenant-http` linker world.
 
 ## Setup: providing the Duffel API key
 
@@ -111,7 +111,7 @@ Returns `{ "id": "ord_...", "pnr": "ABC123", "status": "confirmed" }`.
 ## Architecture
 
 ```
-  agent                       TEE (z-space contract)              Duffel
+  agent                       TEE (z-namespace contract)              Duffel
     |                                  |                             |
     |  search-offers(origin, dest, ...) |                             |
     |----------------------------------------->  POST /air/offer-requests  |
@@ -129,6 +129,4 @@ Returns `{ "id": "ord_...", "pnr": "ABC123", "status": "confirmed" }`.
     |<--- { id, pnr, status } ---------|                             |
 ```
 
-## Depends on
 
-- MAT-1571: `tenant-http` linker world — provides `host:interfaces/http` to z-space contracts at runtime.
