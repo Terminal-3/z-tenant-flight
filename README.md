@@ -110,23 +110,24 @@ Returns `{ "id": "ord_...", "pnr": "ABC123", "status": "confirmed" }`.
 
 ## Architecture
 
-```
-  agent                       TEE (z-namespace contract)              Duffel
-    |                                  |                             |
-    |  search-offers(origin, dest, ...) |                             |
-    |----------------------------------------->  POST /air/offer-requests  |
-    |                                  |----------------------------> |
-    |                                  |<-- { offer_request_id } -----|
-    |                                  |  GET /air/offers?id=...      |
-    |                                  |----------------------------> |
-    |                                  |<-- [ offer, offer, ... ] ----|
-    |<--- { offers: [...] } -----------|                             |
-    |                                  |                             |
-    |  book-offer(offer_id, passenger) |                             |
-    |----------------------------------------->  POST /air/orders        |
-    |  [PII enters TEE here]           |----------------------------> |
-    |  [PII never returned]            |<-- { id, pnr, status } ------|
-    |<--- { id, pnr, status } ---------|                             |
-```
+```mermaid
+sequenceDiagram
+    participant Agent as agent
+    participant T3Network as T3 Network<br/>(z-namespace contract)
+    participant Duffel
 
+    Agent->>T3Network: search-offers(origin, dest, ...)
+    T3Network->>Duffel: POST /air/offer-requests
+    Duffel-->>T3Network: { offer_request_id }
+    T3Network->>Duffel: GET /air/offers?id=...
+    Duffel-->>T3Network: [ offer, offer, ... ]
+    T3Network-->>Agent: { offers: [...] }
+
+    Agent->>T3Network: book-offer(offer_id, passengers)
+    Note over Agent,T3Network: PII enters T3 Network here
+    T3Network->>Duffel: POST /air/orders
+    Duffel-->>T3Network: { id, pnr, status }
+    Note over Agent,T3Network: PII never returned
+    T3Network-->>Agent: { id, pnr, status }
+```
 
