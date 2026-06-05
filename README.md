@@ -110,23 +110,24 @@ Returns `{ "id": "ord_...", "pnr": "ABC123", "status": "confirmed" }`.
 
 ## Architecture
 
-```
-  agent                       TEE (z-namespace contract)              Duffel
-    |                                  |                             |
-    |  search-offers(origin, dest, ...) |                             |
-    |----------------------------------------->  POST /air/offer-requests  |
-    |                                  |----------------------------> |
-    |                                  |<-- { offer_request_id } -----|
-    |                                  |  GET /air/offers?id=...      |
-    |                                  |----------------------------> |
-    |                                  |<-- [ offer, offer, ... ] ----|
-    |<--- { offers: [...] } -----------|                             |
-    |                                  |                             |
-    |  book-offer(offer_id, passenger) |                             |
-    |----------------------------------------->  POST /air/orders        |
-    |  [PII enters TEE here]           |----------------------------> |
-    |  [PII never returned]            |<-- { id, pnr, status } ------|
-    |<--- { id, pnr, status } ---------|                             |
-```
+```mermaid
+sequenceDiagram
+    participant Agent as agent
+    participant TEE as TEE<br/>(z-namespace contract)
+    participant Duffel
 
+    Agent->>TEE: search-offers(origin, dest, ...)
+    TEE->>Duffel: POST /air/offer-requests
+    Duffel-->>TEE: { offer_request_id }
+    TEE->>Duffel: GET /air/offers?id=...
+    Duffel-->>TEE: [ offer, offer, ... ]
+    TEE-->>Agent: { offers: [...] }
+
+    Agent->>TEE: book-offer(offer_id, passenger)
+    Note over Agent,TEE: PII enters TEE here
+    TEE->>Duffel: POST /air/orders
+    Duffel-->>TEE: { id, pnr, status }
+    Note over Agent,TEE: PII never returned
+    TEE-->>Agent: { id, pnr, status }
+```
 
