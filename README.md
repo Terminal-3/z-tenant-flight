@@ -123,7 +123,7 @@ sequenceDiagram
     Duffel-->>TEE: [ offer, offer, ... ]
     TEE-->>Agent: { offers: [...] }
 
-    Agent->>TEE: book-offer(offer_id, passenger)
+    Agent->>TEE: book-offer(offer_id, passengers)
     Note over Agent,TEE: PII enters TEE here
     TEE->>Duffel: POST /air/orders
     Duffel-->>TEE: { id, pnr, status }
