@@ -60,19 +60,12 @@ fn book_offer_wasm(req: BookOfferReq) -> Result<Booking, String> {
     // The `{{profile.<path>}}` markers are resolved host-side from the
     // calling user's profile via http-with-placeholders, after this contract
     // serialises the body and before the outbound Duffel call — the contract
-    // never holds the plaintext. Marker paths match the Trinity user-profile
-    // schema (MAT-1627 field mapping): `given_name`←`first_name`,
-    // `family_name`←`last_name`; `date_of_birth` and `gender` map 1:1; the
-    // verified email is reached via the post-MAT-1333 nested path
-    // `verified_contacts.email.value` (the legacy `profile.first_name`-style
-    // fallback handles the single-segment names against the whole-blob shape).
+    // never holds the plaintext.
     //
-    // DEMO-HARDCODED fields: the Trinity user-profile schema carries no
+    // DEMO-HARDCODED fields: the user-profile schema carries no
     // passport / nationality / title fields, and we don't run phone
     // verification for the demo, so `verified_contacts.phone.value` won't
-    // exist. For those we send fixed Duffel-sandbox values. Productionising
-    // requires extending the profile schema with passport/title and running
-    // SMS OTP for phone — see the demo README "Known gap".
+    // exist. For those we send fixed Duffel-sandbox values.
     let order_body = json!({
         "data": {
             "type": "instant",
@@ -227,10 +220,6 @@ mod tests {
 
     #[test]
     fn book_offer_rejects_inline_pii_fields() {
-        // The v0.3.0 shape carried `passengers: [Passenger]` inline. The v0.4.0
-        // shape must reject input that omits the now-required `passenger_id`
-        // even if it carries the old PII block — proving callers can't sneak
-        // PII through the contract argument.
         let input = serde_json::to_vec(&serde_json::json!({
             "offer_id": "off_abc123",
             "passengers": [{ "given_name": "Jane" }],

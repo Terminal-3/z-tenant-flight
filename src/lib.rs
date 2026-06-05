@@ -1,7 +1,7 @@
-//! z-tenant-flight v0.4.0 — Duffel flight booking showcase (MAT-1572, MAT-1627).
+//! z-tenant-flight v0.4.0 — Duffel flight booking showcase.
 //!
 //! Demonstrates the z-space tenant model:
-//!   - `search-offers`: calls Duffel offer search API inside the TEE (no PII).
+//!   - `search-offers`: calls Duffel offer search API inside the Enclave (no PII).
 //!   - `book-offer`: calls Duffel create-order API via the host's
 //!     `http-with-placeholders` interface. Passenger PII is NEVER passed in as
 //!     a contract argument: the contract templates `{{profile.<field>}}`
