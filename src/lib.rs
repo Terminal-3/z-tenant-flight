@@ -1,4 +1,4 @@
-//! z-tenant-flight v0.4.0 — Duffel flight booking showcase.
+//! z-tenant-flight v0.4.1 — Duffel flight booking showcase.
 //!
 //! Demonstrates the z-space tenant model:
 //!   - `search-offers`: calls Duffel offer search API inside the Enclave (no PII).
@@ -8,30 +8,36 @@
 //!     markers into the order body and the host resolves them from the calling
 //!     user's profile at dispatch time, so plaintext PII never enters WASM.
 //!
-//! The Duffel API key is read from the z: KV map `secrets` (key:
+//! The Duffel API key is read from the z: KV map `z:<tid>:secrets` (key:
 //! `duffel_api_key`). This map is created and populated by the tenant SDK
 //! before the contract runs. Only the booking ID and PNR cross the WIT
 //! boundary back to the caller.
 //!
 //! # Host-capability requirements
 //!
-//! Declare in manifest (access to a user's profile is gated by the on-chain
-//! agent delegation grant, not a per-field allowlist):
-//! ```json
-//! {
-//!   "host_capabilities": [
-//!     "kv_store", "logging", "tenant_context", "http", "http_with_placeholders"
-//!   ]
-//! }
-//! ```
+//! Capabilities come from the host interfaces imported in `wit/world.wit`;
+//! there is no separate contract manifest in the current registration flow.
+//! This contract imports `tenant-context`, `logging`, `kv-store`, `http`, and
+//! `http-with-placeholders`. Access to a user's profile is gated by the
+//! on-chain agent delegation grant, not a per-field allowlist.
 //!
 //! # Setup
 //!
 //! Before first use, the tenant SDK must create the `secrets` KV map and
-//! write the Duffel API key:
+//! write the Duffel API key with a control-plane map write:
 //! ```text
-//! // Via the tenant SDK (before contract first use):
-//! z_sdk.kv("secrets").set("duffel_api_key", "duffel_test_your_key_here")
+//! await tenant.maps.create({
+//!   tail: "secrets",
+//!   visibility: "private",
+//!   writers: { only: [contractId] },
+//!   readers: { only: [contractId] },
+//! });
+//!
+//! await tenant.executeControl("map-entry-set", {
+//!   map_name: tenant.canonicalName("secrets"),
+//!   key: "duffel_api_key",
+//!   value: process.env.DUFFEL_API_KEY!,
+//! });
 //! ```
 #![warn(clippy::style, missing_debug_implementations)]
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
@@ -89,7 +95,7 @@ mod tests {
     }
 
     #[test]
-    fn contract_version_is_v0_4_0() {
+    fn contract_version_is_v0_4_1() {
         assert_eq!(CONTRACT_VERSION, "0.4.1");
     }
 }

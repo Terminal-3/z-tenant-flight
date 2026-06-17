@@ -1,6 +1,6 @@
 # z-tenant-flight
 
-Duffel flight booking showcase for Trinity z-namespace tenants — v0.3.0.
+Duffel flight booking showcase for Trinity z-namespace tenants — v0.4.1.
 
 A Rust WASM contract that runs inside the Trinity TEE (Trusted Execution Environment) and calls the [Duffel](https://duffel.com) API synchronously via `host:interfaces/http`.
 
@@ -11,33 +11,44 @@ Two contract functions exposed over WIT:
 | Function | What it does |
 |---|---|
 | `search-offers` | POST to Duffel `/air/offer-requests`, then GET `/air/offers` — returns a list of available flights |
-| `book-offer` | POST to Duffel `/air/orders` with full passenger PII — returns the booking ID and PNR |
+| `book-offer` | POST to Duffel `/air/orders` using host-resolved profile placeholders — returns the booking ID and PNR |
 
-Privacy guarantee: passenger PII (passport number, date-of-birth, full name, email, phone) is passed in by the agent and used inside the enclave to call Duffel. Only the booking ID and PNR cross the WIT boundary back to the caller. Error responses from Duffel are logged inside the TEE and never forwarded to the caller.
+Privacy guarantee: passenger PII is not passed as ordinary contract input. The contract writes `{{profile.<field>}}` markers into the Duffel order body and sends it through `host:interfaces/http-with-placeholders`; the host resolves those markers from the calling user's profile at dispatch time. Only the booking ID and PNR cross the WIT boundary back to the caller. Error responses from Duffel are logged inside the TEE and never forwarded to the caller.
 
-## Host-capability manifest
+## Host capabilities
 
-Declare in your contract manifest:
+Capabilities come from the host interfaces imported in `wit/world.wit`; there is no separate contract manifest in the current registration flow. This sample imports:
 
-```json
-{ "host_capabilities": ["kv_store", "logging", "tenant_context", "http"] }
-```
-
-The `http` capability enables outbound HTTP via the `tenant-http` linker world.
+- `host:tenant/tenant-context@1.0.0`
+- `host:interfaces/logging@2.1.0`
+- `host:interfaces/kv-store@2.1.0`
+- `host:interfaces/http@2.1.0`
+- `host:interfaces/http-with-placeholders@2.1.0`
 
 ## Setup: providing the Duffel API key
 
 Before deploying or calling this contract for the first time, the tenant SDK must:
 
-1. Create the `secrets` KV map in the z: namespace.
-2. Write the Duffel API key under the key `duffel_api_key`.
+1. Register the contract and keep the returned `contract_id`.
+2. Create the `secrets` KV map in the z: namespace with this contract as reader and writer.
+3. Write the Duffel API key under the key `duffel_api_key` with a control-plane `map-entry-set` call.
 
-```bash
-# Example via the tenant SDK / admin tooling:
-z_sdk.kv("secrets").set("duffel_api_key", "<your Duffel test API token>")
+```typescript
+await tenant.maps.create({
+  tail: "secrets",
+  visibility: "private",
+  writers: { only: [contractId] },
+  readers: { only: [contractId] },
+});
+
+await tenant.executeControl("map-entry-set", {
+  map_name: tenant.canonicalName("secrets"),
+  key: "duffel_api_key",
+  value: process.env.DUFFEL_API_KEY!,
+});
 ```
 
-The contract reads this value at runtime using `host:interfaces/kv-store` — no `secret` interface is involved. The `secrets` map is owned and populated externally by the tenant operator; the contract never writes to it.
+The contract reads this value at runtime from `z:<tid>:secrets` using `host:interfaces/kv-store` — no `secret` interface is involved. The `secrets` map is owned and populated externally by the tenant operator; the contract never writes to it.
 
 ## Building
 
@@ -60,7 +71,7 @@ cargo clippy --all-targets -- -D warnings
 ### `search-offers`
 
 ```wit
-search-offers: func(req: search-offers-req) -> result<search-offers-resp, string>;
+search-offers: func(req: generic-input) -> result<list<u8>, string>;
 ```
 
 Input:
@@ -80,7 +91,7 @@ Returns a list of `offer` records, each with `id`, `total_amount`, `total_curren
 ### `book-offer`
 
 ```wit
-book-offer: func(req: book-offer-req) -> result<booking, string>;
+book-offer: func(req: generic-input) -> result<list<u8>, string>;
 ```
 
 Input:
@@ -88,23 +99,13 @@ Input:
 ```json
 {
   "offer_id": "off_abc123",
-  "passengers": [
-    {
-      "given_name": "Jane",
-      "family_name": "Smith",
-      "date_of_birth": "1990-01-15",
-      "passport_number": "AB1234567",
-      "nationality": "GB",
-      "passport_expiry": "2030-06-01",
-      "gender": "f",
-      "email": "jane@example.com",
-      "phone": "+441234567890"
-    }
-  ],
+  "passenger_id": "pas_abc123",
   "total_amount": "199.00",
   "total_currency": "GBP"
 }
 ```
+
+Passenger name, date of birth, gender, and verified email are resolved host-side from profile placeholders in `src/booking.rs`; they are not supplied in this JSON input.
 
 Returns `{ "id": "ord_...", "pnr": "ABC123", "status": "confirmed" }`.
 
@@ -123,11 +124,10 @@ sequenceDiagram
     Duffel-->>T3Network: [ offer, offer, ... ]
     T3Network-->>Agent: { offers: [...] }
 
-    Agent->>T3Network: book-offer(offer_id, passengers)
-    Note over Agent,T3Network: PII enters T3 Network here
-    T3Network->>Duffel: POST /air/orders
+    Agent->>T3Network: book-offer(offer_id, passenger_id, ...)
+    Note over T3Network,Duffel: Host resolves profile placeholders
+    T3Network->>Duffel: POST /air/orders with http-with-placeholders
     Duffel-->>T3Network: { id, pnr, status }
-    Note over Agent,T3Network: PII never returned
+    Note over Agent,T3Network: PII is never ordinary contract input or output
     T3Network-->>Agent: { id, pnr, status }
 ```
-
