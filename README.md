@@ -1,8 +1,8 @@
 # z-tenant-flight
 
-Duffel flight booking showcase for Trinity z-namespace tenants — v0.3.0.
+Duffel flight booking showcase for Trinity z-namespace tenants — v0.4.1.
 
-A Rust WASM contract that runs inside the Trinity TEE (Trusted Execution Environment) and calls the [Duffel](https://duffel.com) API synchronously via `host:interfaces/http`.
+A Rust WASM contract that runs inside the Trinity TEE (Trusted Execution Environment) and calls the [Duffel](https://duffel.com) API synchronously via `host:interfaces/http` and `host:interfaces/http-with-placeholders`.
 
 ## What this is
 
@@ -11,19 +11,27 @@ Two contract functions exposed over WIT:
 | Function | What it does |
 |---|---|
 | `search-offers` | POST to Duffel `/air/offer-requests`, then GET `/air/offers` — returns a list of available flights |
-| `book-offer` | POST to Duffel `/air/orders` with full passenger PII — returns the booking ID and PNR |
+| `book-offer` | POST to Duffel `/air/orders` with an opaque Duffel passenger ID; the host resolves profile placeholders — returns the booking ID, PNR, and status |
 
-Privacy guarantee: passenger PII (passport number, date-of-birth, full name, email, phone) is passed in by the agent and used inside the enclave to call Duffel. Only the booking ID and PNR cross the WIT boundary back to the caller. Error responses from Duffel are logged inside the TEE and never forwarded to the caller.
+Privacy guarantee: passenger PII is not passed in by the agent or exposed to the contract. `book-offer` serializes `{{profile.<field>}}` markers, and the host resolves permitted profile values only when dispatching the outbound request, so plaintext profile PII never enters WASM memory. The contract returns only the booking ID, PNR, and status. Booking error bodies are logged inside the TEE and never forwarded to the caller.
 
 ## Host-capability manifest
 
 Declare in your contract manifest:
 
 ```json
-{ "host_capabilities": ["kv_store", "logging", "tenant_context", "http"] }
+{
+  "host_capabilities": [
+    "kv_store",
+    "logging",
+    "tenant_context",
+    "http",
+    "http_with_placeholders"
+  ]
+}
 ```
 
-The `http` capability enables outbound HTTP via the `tenant-http` linker world.
+The contract uses `http` for PII-free offer search and `http_with_placeholders` for booking, where the host resolves profile markers immediately before the Duffel request is sent.
 
 ## Setup: providing the Duffel API key
 
@@ -51,8 +59,9 @@ The WASM artefact will be at `target/wasm32-wasip2/release/z_tenant_flight.wasm`
 ## Running tests (native)
 
 ```bash
-cargo test --lib
-cargo clippy --all-targets -- -D warnings
+Z_TENANT_FLIGHT_HOST_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
+cargo test --target "$Z_TENANT_FLIGHT_HOST_TARGET" --lib
+cargo clippy --target "$Z_TENANT_FLIGHT_HOST_TARGET" --all-targets -- -D warnings
 ```
 
 ## Contract functions
@@ -75,7 +84,7 @@ Input:
 }
 ```
 
-Returns a list of `offer` records, each with `id`, `total_amount`, `total_currency`, and `expires_at`.
+Returns a list of `offer` records, each with `id`, `total_amount`, `total_currency`, `expires_at`, and Duffel-assigned `passenger_ids`.
 
 ### `book-offer`
 
@@ -88,23 +97,13 @@ Input:
 ```json
 {
   "offer_id": "off_abc123",
-  "passengers": [
-    {
-      "given_name": "Jane",
-      "family_name": "Smith",
-      "date_of_birth": "1990-01-15",
-      "passport_number": "AB1234567",
-      "nationality": "GB",
-      "passport_expiry": "2030-06-01",
-      "gender": "f",
-      "email": "jane@example.com",
-      "phone": "+441234567890"
-    }
-  ],
+  "passenger_id": "pas_abc123",
   "total_amount": "199.00",
   "total_currency": "GBP"
 }
 ```
+
+`passenger_id` is the opaque Duffel-assigned value returned by `search-offers`; it is not passenger PII. Profile-backed fields are inserted as placeholders and resolved by the host through `http-with-placeholders`. The demo currently uses fixed Duffel-sandbox values for fields that are not available in the user profile schema.
 
 Returns `{ "id": "ord_...", "pnr": "ABC123", "status": "confirmed" }`.
 
@@ -123,11 +122,10 @@ sequenceDiagram
     Duffel-->>T3Network: [ offer, offer, ... ]
     T3Network-->>Agent: { offers: [...] }
 
-    Agent->>T3Network: book-offer(offer_id, passengers)
-    Note over Agent,T3Network: PII enters T3 Network here
-    T3Network->>Duffel: POST /air/orders
+    Agent->>T3Network: book-offer(offer_id, passenger_id, amount)
+    Note over T3Network: WASM emits profile placeholders, not plaintext PII
+    T3Network->>Duffel: Host resolves placeholders, then POST /air/orders
     Duffel-->>T3Network: { id, pnr, status }
-    Note over Agent,T3Network: PII never returned
+    Note over Agent,T3Network: Plaintext profile PII never enters WASM or returns
     T3Network-->>Agent: { id, pnr, status }
 ```
-

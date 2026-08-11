@@ -51,10 +51,7 @@ pub fn search_offers(input: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(target_arch = "wasm32")]
-use crate::host::{
-    interfaces::{http as http_iface, kv_store, logging},
-    tenant::tenant_context,
-};
+use crate::host::interfaces::{http as http_iface, kv_store, logging};
 
 #[cfg(target_arch = "wasm32")]
 fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> {
@@ -178,8 +175,7 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
 
 #[cfg(target_arch = "wasm32")]
 fn get_api_key() -> Result<alloc::string::String, alloc::string::String> {
-    let tid = tenant_context::tenant_did();
-    let map_name = alloc::format!("z:{}:secrets", hex::encode(&tid));
+    let map_name = crate::secrets::current_secrets_map_name()?;
     let bytes = kv_store::get(&map_name, b"duffel_api_key")
         .map_err(|e| alloc::format!("kv read: {e}"))?
         .ok_or("duffel_api_key not found in z:<tid>:secrets — populate it via the tenant SDK before use")?;
