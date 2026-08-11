@@ -41,7 +41,7 @@ interface contracts {
 
     /// Search Duffel for available flights and return a list of offers.
     /// Input  (JSON): { origin, destination, departure_date, cabin_class, adult_count }
-    /// Output (JSON): { offers: [{ id, total_amount, total_currency, expires_at }] }
+    /// Output (JSON): { offers: [{ id, total_amount, total_currency, expires_at, passenger_ids }] }
     search-offers: func(req: generic-input) -> result<list<u8>, string>;
 
     /// Book the selected offer. Returns booking ID and PNR.

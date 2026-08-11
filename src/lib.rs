@@ -1,4 +1,4 @@
-//! z-tenant-flight v0.4.0 — Duffel flight booking showcase.
+//! z-tenant-flight v0.4.1 — Duffel flight booking showcase.
 //!
 //! Demonstrates the z-space tenant model:
 //!   - `search-offers`: calls Duffel offer search API inside the Enclave (no PII).
@@ -52,6 +52,7 @@ wit_bindgen::generate!({
 
 mod booking;
 mod search;
+mod secrets;
 
 struct Component;
 
@@ -89,7 +90,7 @@ mod tests {
     }
 
     #[test]
-    fn contract_version_is_v0_4_0() {
+    fn contract_version_is_v0_4_1() {
         assert_eq!(CONTRACT_VERSION, "0.4.1");
     }
 }
