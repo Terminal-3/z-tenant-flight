@@ -16,10 +16,10 @@
 /// the key `duffel_api_key`. The contract builds the full map name at runtime
 /// using `tenant-context.tenant-did()`. The map is created and populated by the
 /// tenant SDK before the contract runs — no secret interface is needed.
-package z:tenant-flight@0.4.0;
+package z:tenant-flight@0.5.0;
 
 world tenant-flight {
-    import host:tenant/tenant-context@1.0.0;
+    import host:tenant/tenant-context@2.0.0;
     import host:interfaces/logging@2.1.0;
     import host:interfaces/kv-store@2.1.0;
     import host:interfaces/http@2.1.0;                    // search (no PII)
