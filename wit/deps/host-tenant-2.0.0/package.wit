@@ -1,0 +1,151 @@
+/// T3-TS-033 §4.3 / T3-TS-044 §3 — host context surfaced to every tenant
+/// contract.
+///
+/// Read-only deterministic values from the dispatcher's tx scope.
+/// No I/O, no side-effects, no allocation beyond the small return
+/// shapes. Reads `TxMeta` for the cluster timestamp and the
+/// registry rows the dispatcher already loaded for policy
+/// evaluation, so resolution is O(1) per call after the per-tx
+/// cache is populated.
+///
+/// @1.1.0 (minor bump, T3-TS-044 §3): adds `authenticated-did` and
+/// `is-delegated`; corrects the `calling-user-did` doc comment.
+/// @1.2.0 (minor bump, T3-TS-046): adds `delegated-scopes`,
+/// `delegated-read-scopes` and `delegated-functions` — the agent's delegated
+/// org-data scopes, its narrower direct-read scope subset, and its contract
+/// functions for the running contract, exposed verbatim from the agent-auth
+/// edge in `ROLE_ASSIGNMENTS_MAP`.
+/// @2.0.0 (MAJOR bump, MAT-2296): `delegated-scopes` returns `list<scope>` —
+/// a path plus the verbs held on it — and `delegated-read-scopes` is REMOVED.
+/// The two parallel string lists could disagree; one list of typed entries
+/// cannot. Grants are now keyed by contract FUNCTION, so `delegated-scopes` is
+/// the scope list of the grant matching the EXECUTING function — never a union
+/// across that contract's grants. Which paths a caller can reach is therefore
+/// decided by which function holds which scope, not by a separate verb.
+/// A guest built against 1.x is not link-compatible with this definition.
+package host:tenant@2.0.0;
+
+interface tenant-context {
+    /// A verb held on a scope path.
+    ///
+    /// `read` is the ONLY verb any gate in this tree checks. Every read gate —
+    /// a contract function reading a path on the grantee's behalf, and the
+    /// grantee's own gated direct read — asks for `read` against the scopes of
+    /// the grant for the function being executed. `write` and `delete` are
+    /// DECLARED ONLY: they fix the vocabulary so a stored grant carrying them
+    /// crosses this boundary intact, but no gate consults them yet. A path
+    /// carrying `write` alone confers no read authority.
+    ///
+    /// A WIT enum is closed, so an unrecognised discriminant fails at the
+    /// bindings boundary rather than reaching guest code. The drop-on-unknown
+    /// rule applies at the JSON/serde boundary, where lax parsing is the
+    /// requirement — not here.
+    enum access {
+        read,
+        write,
+        delete,
+    }
+
+    /// One permission: a canonical org-data path and the verbs held on it.
+    /// WHICH paths are reachable is decided by the enclosing grant's function;
+    /// this record decides only what may be done with a path once reached.
+    record scope {
+        path: string,
+        access: list<access>,
+    }
+
+    /// Tenant DID under which this contract is running. The 20-byte
+    /// raw `CompactDid` shape — same as user / organisation DIDs.
+    /// Determined by the canonical `z:<tid>:<contract-tail>`
+    /// contract-id parse at dispatch time.
+    tenant-did: func() -> list<u8>;
+
+    /// Stable interned id of the running contract (a `u32`). Resolves
+    /// back to the canonical `z:<tid>:<contract-tail>` name via
+    /// `idx:_tenant_contract_ids` for log / metric / audit emission.
+    /// `Caller::TenantContract { tenant, contract: id }` — same id.
+    contract-id: func() -> u32;
+
+    /// The subject DID of the call — the user on whose behalf the action
+    /// executes. On delegated calls (agent acting on behalf of a member)
+    /// this is the member DID, not the agent. `None` for non-Session-API
+    /// paths (`/api/dev/exec` direct invocations, webhook dispatch
+    /// — T3-TS-033 §5.2 / §5.4).
+    calling-user-did: func() -> option<list<u8>>;
+
+    /// The authenticated session DID actually making the call — the agent
+    /// on delegated calls; equal to `calling-user-did` on direct member
+    /// calls. `None` on non-Session-API paths (same conditions as
+    /// `calling-user-did`). T3-TS-044 §3.
+    authenticated-did: func() -> option<list<u8>>;
+
+    /// True iff `calling-user-did` and `authenticated-did` are both
+    /// present and differ. False whenever `calling-user-did` is `none` —
+    /// a subjectless call is not on anyone's behalf. T3-TS-044 §3.
+    is-delegated: func() -> bool;
+
+    /// The org-data permissions the subject (`calling-user-did`) has
+    /// delegated to the acting agent (`authenticated-did`) for THIS contract,
+    /// taken verbatim from the host-owned agent-auth edge in
+    /// `ROLE_ASSIGNMENTS_MAP` the host already enforces this call against.
+    /// T3-TS-046 §Two-level scoping.
+    ///
+    /// On a DELEGATED call this is the `scopes` list of the agent's matching
+    /// `agent_auth` grant for the running script AND the EXECUTING FUNCTION —
+    /// the matched grant's own scopes, never a union across the contract's
+    /// grants. Unioning would hand a narrow function the scopes of a broad
+    /// sibling. It is the EMPTY list on a
+    /// NON-delegated (self) call and whenever no live matching grant
+    /// resolves, so a gate denies rather than over-permitting. The host does
+    /// NOT intersect scopes (it gates functions, not scopes); the contract
+    /// intersects this set against the org's `OrgGrant`, GATED on
+    /// `is-delegated()` so self-calls (empty set) fall through to the
+    /// `OrgGrant` alone. The values are sourced SOLELY from the agent-auth
+    /// edge in `ROLE_ASSIGNMENTS_MAP`, never from any request field, so a
+    /// lying agent cannot inject authority.
+    ///
+    /// Each entry carries the verbs held on its path, and `read` is the verb
+    /// every gate asks for. The T3-TS-046 roster split is carried by the
+    /// function keying, not by a verb: an agent granted
+    /// `compute-payroll → [payroll/employees, payroll/audit]` and
+    /// `read-scope-entries → [payroll/audit]` gets the roster in
+    /// `delegated-scopes()` while `compute-payroll` runs and does NOT get it
+    /// while the direct-read `read-scope-entries` runs. Expressed before
+    /// 2.0.0 by the grant's separate `read_scopes` field and the
+    /// `delegated-read-scopes` accessor, and between the two by a `list` verb;
+    /// both mechanisms are retired.
+    delegated-scopes: func() -> list<scope>;
+
+    /// The contract FUNCTIONS the subject (`calling-user-did`) has
+    /// delegated to the acting agent (`authenticated-did`) for THIS
+    /// contract, taken verbatim from the host-owned agent-auth edge in
+    /// `ROLE_ASSIGNMENTS_MAP`. T3-TS-046 — exposed because functions are gated
+    /// host-side
+    /// and otherwise invisible to the contract; the read-only
+    /// `check-delegation` flow needs them to report which functions an
+    /// agent is missing.
+    ///
+    /// Since MAT-2296 each grant is keyed to a single `function`, not a
+    /// `functions` list — the all-functions marker is the explicit
+    /// `function: "*"` value, never an absent or null field. On a DELEGATED
+    /// call this accessor collects the `function` value of every matching
+    /// grant for the running script into a list; a grant whose `function` is
+    /// `"*"` short-circuits the whole result to the single-element list
+    /// `["*"]` (the contract treats `"*"` as "every function delegated,
+    /// nothing missing"). On a NON-delegated (self) call — and whenever no
+    /// grant resolves — the EMPTY list is returned. Values are sourced
+    /// SOLELY from the agent-auth edge in `ROLE_ASSIGNMENTS_MAP`, never from
+    /// any request field.
+    delegated-functions: func() -> list<string>;
+
+    /// Cluster-wide monotonic timestamp pinned by the dispatcher.
+    /// Same `TxMeta.cluster_timestamp` source the system contracts
+    /// read via `host:interfaces/clock` — surfaced here so tenant
+    /// contracts don't pull in the broader clock interface for what
+    /// is a one-call need.
+    cluster-timestamp-secs: func() -> u64;
+
+    /// Current store sequence number. Useful for audit / replay
+    /// correlation (`idx:txs_by_did` rows are keyed by this seq).
+    seq-no: func() -> u64;
+}
