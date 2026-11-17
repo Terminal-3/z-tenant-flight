@@ -76,7 +76,15 @@ async function setup(withScanner: boolean) {
   const { tenant, contract } = await signIn();
   let id = Number(process.env.FLIGHT_CONTRACT_ID) || undefined;
   const deployed = await deployedVersion(contract);
-  if (deployed !== VERSION || id === undefined) {
+  if (deployed === VERSION && id === undefined) {
+    // Registering the same version again is refused, and T3N has no call that
+    // returns an existing contract's id, so the map ACLs can't be set without it.
+    throw new Error(
+      `${contract} ${VERSION} is already registered, but FLIGHT_CONTRACT_ID is not in starter/.env. ` +
+        "Add the contract id printed by your first `npm run flight setup` (FLIGHT_CONTRACT_ID=<id>) and run setup again.",
+    );
+  }
+  if (deployed !== VERSION) {
     if (!existsSync(WASM)) throw new Error("Build the contract first: cargo build --release (from the repo root).");
     const result = await tenant.contracts.register({ tail: TAIL, version: VERSION, wasm: readFileSync(WASM) });
     id = result.contract_id;
