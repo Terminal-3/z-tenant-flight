@@ -4,12 +4,13 @@
  *   npm run flight -- setup [--with-scanner]    register the contract, create its maps, seal the Duffel key
  *   npm run flight save-traveller [file.json]   save your traveller record (default ../examples/traveller.json)
  *   npm run flight grant                        let your org agent call search-offers and book-offer
+ *   npm run flight fund-agent [credits]         top up your agent from your own balance (default 300 credits)
  *   npm run flight search LHR JFK 2026-12-15    search as the agent
  *   npm run flight book <offer_id> <passenger_id> <amount> <currency> [scanner_request_id]
  *
  * Keys come from .env (git-ignored) or the environment and are never printed.
  */
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import {
   T3nClient,
   TenantClient,
@@ -23,6 +24,8 @@ import {
   getContractVersion,
   fanOutGrant,
   invoke,
+  InvokeError,
+  toBaseUnits,
   type BoundGrant,
 } from "@terminal3/t3n-sdk";
 
@@ -30,6 +33,7 @@ const TAIL = "flight";
 const VERSION = "0.6.0";
 const WASM = new URL("../target/wasm32-wasip2/release/z_tenant_flight.wasm", import.meta.url);
 const DUFFEL_HOST = "api.duffel.com";
+const DEFAULT_AGENT_CREDITS = 300;
 
 function need(name: string): string {
   const v = process.env[name]?.trim();
@@ -61,6 +65,15 @@ async function deployedVersion(contract: string): Promise<string | null> {
   }
 }
 
+/** Write FLIGHT_CONTRACT_ID into .env, replacing the (empty) line .env.example ships with. */
+function recordContractId(id: number) {
+  if (!existsSync(".env")) return;
+  const env = readFileSync(".env", "utf8");
+  const line = `FLIGHT_CONTRACT_ID=${id}`;
+  const pattern = /^FLIGHT_CONTRACT_ID=.*$/m;
+  writeFileSync(".env", pattern.test(env) ? env.replace(pattern, line) : `${env.trimEnd()}\n${line}\n`);
+}
+
 async function createMap(tenant: TenantClient, tail: string, contractIds: number[]) {
   const acl = { readers: { only: contractIds }, writers: { only: contractIds } };
   try {
@@ -81,7 +94,7 @@ async function setup(withScanner: boolean) {
     const result = await tenant.contracts.register({ tail: TAIL, version: VERSION, wasm: readFileSync(WASM) });
     id = result.contract_id;
     console.log(`registered ${contract} ${VERSION} as contract id ${id}`);
-    if (existsSync(".env")) appendFileSync(".env", `\nFLIGHT_CONTRACT_ID=${id}\n`);
+    recordContractId(id);
   } else {
     // Registering the same version again is refused, and T3N has no call that
     // returns an existing contract's id, so the map ACLs need the recorded one.
@@ -104,7 +117,12 @@ async function setup(withScanner: boolean) {
   if (withScanner) {
     // The Private Doc Scanner records its own contract id in its config map.
     const scannerId = Number(await tenant.maps.entryGet("config", "contract_id"));
-    if (!scannerId) throw new Error("No Private Doc Scanner vault found in this tenant: run its setup-vault first.");
+    if (!scannerId) {
+      throw new Error(
+        "No Private Doc Scanner vault found in this tenant: run its setup-vault first. If you already have a vault, " +
+          "run `npx tsx scripts/setup-vault.ts --reregister` in the scanner's starter/ folder to record its contract id.",
+      );
+    }
     await tenant.maps.update("intake", { readers: { only: [scannerId, id] } });
     console.log(`scanner vault ${tenant.canonicalName("intake")} readable by contract ${id}`);
   }
@@ -136,13 +154,31 @@ async function grant() {
   console.log(`granted ${agentDid} → ${contract}: search-offers, book-offer (egress ${DUFFEL_HOST})`);
 }
 
+async function fundAgent(credits: number) {
+  const { t3n } = await signIn();
+  const agentDid = need("AGENT_DID");
+  await t3n.fundAgent(agentDid, toBaseUnits(credits));
+  console.log(`funded ${agentDid} with ${credits} credits from your own balance`);
+}
+
 async function asAgent(functionName: string, input: unknown) {
   const { tenantDid, contract } = await signIn();
-  return invoke({
-    baseUrl: getNodeUrl(),
-    apiKey: need("AGENT_API_KEY"),
-    request: { contract_id: contract, contract_version: VERSION, function_name: functionName, pii_did: tenantDid, input },
-  });
+  try {
+    return await invoke({
+      baseUrl: getNodeUrl(),
+      apiKey: need("AGENT_API_KEY"),
+      request: { contract_id: contract, contract_version: VERSION, function_name: functionName, pii_did: tenantDid, input },
+    });
+  } catch (err) {
+    // invoke() drops the response body by design, so a 403 can't say why.
+    if (err instanceof InvokeError && err.status === 403) {
+      throw new Error(
+        "The node refused the agent's call (HTTP 403). Usually either the agent is out of credit " +
+          "(run `npm run flight fund-agent`) or it isn't granted this function (run `npm run flight grant`).",
+      );
+    }
+    throw err;
+  }
 }
 
 const [cmd, ...args] = process.argv.slice(2);
@@ -156,6 +192,12 @@ switch (cmd) {
   case "grant":
     await grant();
     break;
+  case "fund-agent": {
+    const credits = args[0] === undefined ? DEFAULT_AGENT_CREDITS : Number(args[0]);
+    if (!(credits > 0)) throw new Error("usage: fund-agent [credits], e.g. fund-agent 300");
+    await fundAgent(credits);
+    break;
+  }
   case "search": {
     const [origin, destination, departure_date] = args;
     if (!departure_date) throw new Error("usage: search <ORIGIN> <DESTINATION> <YYYY-MM-DD>");
@@ -171,6 +213,6 @@ switch (cmd) {
     break;
   }
   default:
-    console.log("commands: setup [--with-scanner] | save-traveller [file] | grant | search <from> <to> <date> | book <offer> <passenger> <amount> <currency> [scanner_request_id]");
+    console.log("commands: setup [--with-scanner] | save-traveller [file] | grant | fund-agent [credits] | search <from> <to> <date> | book <offer> <passenger> <amount> <currency> [scanner_request_id]");
     process.exitCode = cmd ? 2 : 0;
 }
