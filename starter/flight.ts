@@ -109,6 +109,9 @@ async function saveTraveller(file: string) {
     input: JSON.parse(readFileSync(file, "utf8")),
   });
   console.log("save-traveller:", out);
+  if (!file.includes("examples/")) {
+    console.log(`Sealed. Now delete ${file} (rm ${file}) so no copy is left for an AI assistant to read.`);
+  }
 }
 
 async function grant() {

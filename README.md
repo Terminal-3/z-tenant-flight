@@ -42,7 +42,7 @@ The scanner reads the passport on the customer's phone, checks its machine-reada
 
 ### Or enter the passport yourself
 
-Save a traveller record with a `passport` block: [`examples/traveller.json`](examples/traveller.json) (fictional values).
+Without the scanner, the customer types their details into a JSON file and seals it to the contract. [`examples/traveller.json`](examples/traveller.json) is sample seed data (fictional values) you can seal as-is to try the flow:
 
 ```json
 {
@@ -57,6 +57,13 @@ Save a traveller record with a `passport` block: [`examples/traveller.json`](exa
   }
 }
 ```
+
+To use real details:
+
+1. Copy the sample into the starter folder: `cp examples/traveller.json starter/my-traveller.json`. The starter's `.gitignore` covers `my-traveller*.json`, so it can't be committed.
+2. Open `starter/my-traveller.json` in your own editor and replace the values, using the formats below. **Do it yourself, not through an AI assistant:** anything an assistant opens or writes ends up in its chat.
+3. From `starter/`, run `npm run flight save-traveller my-traveller.json`. It signs in with your key and calls `save-traveller`, which checks the fields and seals the record in `z:<tid>:travellers` under your DID.
+4. **Delete the file** once you see `saved: true`: `rm my-traveller.json`. The sealed copy is the one the contract uses, and a copy left on disk is one an AI assistant working in this folder could read. To change anything later, write a new file, save it again (it replaces the old record), and delete it again. `forget-traveller` deletes the sealed record.
 
 | Field | Required | Format |
 |---|---|---|
