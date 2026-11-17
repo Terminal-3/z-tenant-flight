@@ -45,7 +45,7 @@ pub fn search_offers(input: &[u8]) -> Result<Vec<u8>, String> {
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = req;
+        drop(req);
         Err("search_offers is only implemented on the wasm32 target".to_string())
     }
 }
@@ -110,9 +110,7 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
         .ok_or("offer-request response: missing data.id")?
         .to_string();
 
-    let _ = logging::info(&alloc::format!(
-        "Duffel offer request created: {offer_request_id}"
-    ));
+    logging::info(&alloc::format!("Duffel offer request created: {offer_request_id}"))?;
 
     // Step 2: fetch offers
     let offers_resp = http_iface::call(&http_iface::Request {
@@ -168,10 +166,7 @@ fn search_offers_wasm(req: SearchOffersReq) -> Result<SearchOffersResp, String> 
         .collect();
     let offers = offers?;
 
-    let _ = logging::info(&alloc::format!(
-        "Duffel offers: {} offers parsed",
-        offers.len()
-    ));
+    logging::info(&alloc::format!("Duffel offers: {} offers parsed", offers.len()))?;
 
     Ok(SearchOffersResp { offers })
 }

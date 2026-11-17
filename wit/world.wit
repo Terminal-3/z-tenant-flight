@@ -1,55 +1,44 @@
-/// z-tenant-flight WIT world — Duffel flight booking showcase.
-///
-/// Imports required host capabilities:
-///   - tenant-context:        tenant DID, cluster timestamp
-///   - logging:               debug / info / error lines
-///   - kv-store:              reads the `secrets` map for the Duffel API key
-///   - http:                  Duffel offer SEARCH (carries no PII)
-///   - http-with-placeholders: Duffel order BOOKING — the body carries
-///                            `{{profile.<field>}}` markers the host resolves
-///                            from the calling user's profile at dispatch time,
-///                            so passenger PII never enters WASM memory.
-///
-/// Note: http requires the `Http` HostCapability and http-with-placeholders
-/// requires the `HttpWithPlaceholders` HostCapability, both granted at admit
-/// time. The Duffel API key is stored in the z: KV map `z:<tid>:secrets` under
-/// the key `duffel_api_key`. The contract builds the full map name at runtime
-/// using `tenant-context.tenant-did()`. The map is created and populated by the
-/// tenant SDK before the contract runs — no secret interface is needed.
-package z:tenant-flight@0.5.0;
+// Host packages vendored from Terminal-3/trinity release testnet-v1.0.12
+// (81f207c00): host:interfaces@2.4.0 and host:tenant@2.0.0. Importing
+// http-with-placeholders puts this contract in the tenant-http-placeholders
+// world. Re-vendor from the release you deploy to if it changes.
+package z:tenant-flight@0.6.0;
 
 world tenant-flight {
     import host:tenant/tenant-context@2.0.0;
-    import host:interfaces/logging@2.1.0;
-    import host:interfaces/kv-store@2.1.0;
-    import host:interfaces/http@2.1.0;                    // search (no PII)
-    import host:interfaces/http-with-placeholders@2.1.0;  // booking (PII via placeholders)
+    import host:interfaces/logging@2.4.0;
+    import host:interfaces/kv-store@2.4.0;
+    import host:interfaces/http@2.4.0;                    // search (no PII)
+    import host:interfaces/http-with-placeholders@2.4.0;  // booking (PII via placeholders)
 
     export contracts;
 }
 
 interface contracts {
     /// Standard 3-field envelope used by all contracts callable from the node.
-    /// `input`        — JSON-serialized request payload specific to the function.
-    /// `user-profile` — always None for tenant contracts (hardcoded at dispatch).
-    /// `context`      — JSON-serialized DynamicContext (node-minted, trusted).
     record generic-input {
         input:        option<list<u8>>,
         user-profile: option<list<u8>>,
         context:      option<list<u8>>,
     }
 
-    /// Search Duffel for available flights and return a list of offers.
-    /// Input  (JSON): { origin, destination, departure_date, cabin_class, adult_count }
-    /// Output (JSON): { offers: [{ id, total_amount, total_currency, expires_at }] }
+    /// The customer saves their own traveller record: title, phone and, unless the
+    /// passport comes from the Private Doc Scanner, their passport (with date of
+    /// birth and sex). Name and email always come from their T3N profile.
+    /// Refused on a delegated call. Input: see examples/. Output: { saved, has_passport }
+    save-traveller: func(req: generic-input) -> result<list<u8>, string>;
+
+    /// The customer deletes their own traveller record. Refused on a delegated call.
+    /// Output: { deleted }
+    forget-traveller: func(req: generic-input) -> result<list<u8>, string>;
+
+    /// Search Duffel for flights. No PII.
+    /// Input:  { origin, destination, departure_date, cabin_class, adult_count }
+    /// Output: { offers: [{ id, total_amount, total_currency, expires_at, passenger_ids }] }
     search-offers: func(req: generic-input) -> result<list<u8>, string>;
 
-    /// Book the selected offer. Returns booking ID and PNR.
-    /// Input  (JSON): { offer_id, passenger_id, total_amount, total_currency }
-    /// Carries NO passenger PII: the contract templates `{{profile.<field>}}`
-    /// markers into the Duffel order body and the host resolves them from the
-    /// calling user's profile via http-with-placeholders. `passenger_id` is the
-    /// opaque Duffel-assigned id from search-offers (not PII).
-    /// Output (JSON): { id, pnr, status }
+    /// Book an offer for the calling customer. The input carries no passenger details.
+    /// Input:  { offer_id, passenger_id, total_amount, total_currency, scanner_request_id? }
+    /// Output: { id, pnr, status }
     book-offer: func(req: generic-input) -> result<list<u8>, string>;
 }

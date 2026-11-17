@@ -1,19 +1,24 @@
-//! book_offer: calls Duffel create-order API and returns the PNR.
+//! book_offer: books a Duffel offer for the calling customer and returns the PNR.
 //!
-//! Passenger PII (name, DOB, passport, contact) is NEVER passed in as a
-//! contract argument. The contract templates `{{profile.<field>}}` markers
-//! into the Duffel order body and the host's `http-with-placeholders`
-//! interface resolves them from the calling user's profile at dispatch time,
-//! so plaintext PII never enters WASM memory.
+//! The input carries no passenger details. Name and email are `{{profile.*}}`
+//! markers the host fills from the customer's T3N profile, so those values
+//! never enter this contract. Title and phone come from the customer's
+//! traveller record (`save-traveller`); the passport, with date of birth and
+//! sex, from that record or from a passport they sealed with the Private Doc
+//! Scanner. Only the booking id, PNR and status come back.
 
 #[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BookOfferReq {
     pub offer_id: String,
-    /// Opaque Duffel-assigned passenger id from the offer (returned by
-    /// search-offers). NOT PII — just the slot the order binds to.
+    /// Opaque Duffel passenger id from search-offers. Not PII.
     pub passenger_id: String,
     pub total_amount: String,
     pub total_currency: String,
+    /// The Private Doc Scanner reference of a sealed passport to use instead
+    /// of the passport in the traveller record.
+    #[serde(default)]
+    pub scanner_request_id: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -40,7 +45,7 @@ pub fn book_offer(input: &[u8]) -> Result<Vec<u8>, String> {
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = req;
+        drop(req);
         Err("book_offer is only implemented on the wasm32 target".to_string())
     }
 }
@@ -53,38 +58,50 @@ use crate::host::{
 
 #[cfg(target_arch = "wasm32")]
 fn book_offer_wasm(req: BookOfferReq) -> Result<Booking, String> {
+    use crate::traveller;
     use serde_json::json;
 
-    let api_key = get_api_key()?;
+    let caller = tenant_context::calling_user_did()
+        .ok_or("book-offer: no calling customer; call through an authenticated T3N session")?;
+    let caller_hex = hex::encode(&caller);
+    let tid = hex::encode(tenant_context::tenant_did());
 
-    // The `{{profile.<path>}}` markers are resolved host-side from the
-    // calling user's profile via http-with-placeholders, after this contract
-    // serialises the body and before the outbound Duffel call — the contract
-    // never holds the plaintext.
-    //
-    // DEMO-HARDCODED fields: the user-profile schema carries no
-    // passport / nationality / title fields, and we don't run phone
-    // verification for the demo, so `verified_contacts.phone.value` won't
-    // exist. For those we send fixed Duffel-sandbox values.
+    let traveller_bytes = kv_store::get(
+        &alloc::format!("z:{tid}:{}", traveller::TRAVELLERS_MAP_TAIL),
+        caller_hex.as_bytes(),
+    )?
+    .ok_or("book-offer: no traveller record for this customer; the customer saves one with save-traveller")?;
+    let t: traveller::Traveller = serde_json::from_slice(&traveller_bytes)
+        .map_err(|_| "book-offer: stored traveller record could not be read".to_string())?;
+
+    let passport = match req.scanner_request_id.as_deref() {
+        Some(id) => {
+            let key = alloc::format!("req:{id}");
+            let record = kv_store::get(
+                &alloc::format!("z:{tid}:{}", traveller::SCANNER_INTAKE_MAP_TAIL),
+                key.as_bytes(),
+            )
+            .map_err(|e| alloc::format!("book-offer: reading the scanner vault: {e}"))?
+            .ok_or("book-offer: no scanned passport found for this reference")?;
+            traveller::passport_from_scanner(&record, &caller_hex)?
+        }
+        None => t.passport.clone().ok_or(
+            "book-offer: the traveller record has no passport; save one with save-traveller or pass scanner_request_id",
+        )?,
+    };
+    let passenger = traveller::passenger(
+        &req.passenger_id,
+        &t,
+        &passport,
+        traveller::today(tenant_context::cluster_timestamp_secs()),
+    )?;
+
+    let api_key = get_api_key()?;
     let order_body = json!({
         "data": {
             "type": "instant",
             "selected_offers": [req.offer_id],
-            "passengers": [{
-                "id": req.passenger_id,
-                // Resolved from the user's profile (privacy-preserving path):
-                "given_name": "{{profile.first_name}}",
-                "family_name": "{{profile.last_name}}",
-                "born_on": "{{profile.date_of_birth}}",
-                "gender": "{{profile.gender}}",
-                "email": "{{profile.verified_contacts.email.value}}",
-                // Demo-hardcoded (no profile source — see note above):
-                "title": "mr",
-                "passport_number": "X12345678",
-                "passport_country_code": "GB",
-                "passport_expiry_date": "2030-01-01",
-                "phone_number": "+442071234567",
-            }],
+            "passengers": [passenger],
             "payments": [{
                 "type": "balance",
                 "amount": req.total_amount,
@@ -93,10 +110,7 @@ fn book_offer_wasm(req: BookOfferReq) -> Result<Booking, String> {
         }
     });
 
-    let _ = logging::info(&alloc::format!(
-        "Calling Duffel POST /air/orders for offer {}",
-        req.offer_id
-    ));
+    logging::info("book-offer: calling Duffel POST /air/orders")?;
 
     let resp = hwp::call(&hwp::Request {
         method: hwp::Verb::Post,
@@ -107,15 +121,10 @@ fn book_offer_wasm(req: BookOfferReq) -> Result<Booking, String> {
     .map_err(|e| alloc::format!("duffel create-order: {}", format_http_error(e)))?;
 
     if resp.code != 200 && resp.code != 201 {
-        let _ = logging::error(&alloc::format!(
-            "Duffel create-order HTTP {}: {}",
-            resp.code,
-            alloc::string::String::from_utf8_lossy(&resp.payload)
-        ));
-        return Err(alloc::format!(
-            "Duffel create-order failed: HTTP {}",
-            resp.code
-        ));
+        // The response body can echo passenger details, so only the status
+        // is logged or returned.
+        logging::error(&alloc::format!("book-offer: Duffel create-order HTTP {}", resp.code))?;
+        return Err(alloc::format!("Duffel create-order failed: HTTP {}", resp.code));
     }
 
     let order: serde_json::Value =
@@ -135,9 +144,7 @@ fn book_offer_wasm(req: BookOfferReq) -> Result<Booking, String> {
         .ok_or("Duffel response missing payment_status.awaiting_payment")?
         .to_string();
 
-    let _ = logging::info(&alloc::format!(
-        "Duffel order created: id={booking_id} pnr={pnr}"
-    ));
+    logging::info("book-offer: Duffel order created")?;
 
     Ok(Booking {
         id: booking_id,

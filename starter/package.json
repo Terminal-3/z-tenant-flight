@@ -1,0 +1,20 @@
+{
+  "name": "z-tenant-flight-starter",
+  "version": "0.6.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Register z-tenant-flight under your T3N tenant, save a traveller, grant your agent and book a test flight.",
+  "scripts": {
+    "flight": "tsx --env-file-if-exists=.env flight.ts",
+    "check": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@terminal3/t3n-sdk": "^5.41.0",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3"
+  }
+}
