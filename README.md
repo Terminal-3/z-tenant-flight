@@ -4,6 +4,18 @@ Let an AI agent book flights for a customer through the [Duffel](https://duffel.
 
 A Rust contract that runs inside the Terminal 3 (T3N) enclave under your own tenant. The agent asks for a search and a booking; the customer's name, email, phone and passport details stay inside the enclave and only go to Duffel. It builds on the [Terminal 3 Get Started guide](https://docs.terminal3.io/developers/adk/get-started/quickstart): same key, same organisation, same agent.
 
+## At a glance
+
+- **What it does:** your agent searches Duffel for flights and books one for a customer. It only ever sees offers and the booking reference; the customer's details go from the enclave straight to Duffel.
+- **What it adds to the Get Started setup:** outbound HTTP to a real API, an API key sealed in the enclave (`z:<tid>:secrets`), a grant that allows exactly one host (`api.duffel.com`), and `{{profile.*}}` placeholders for the customer's name and email. It's a second contract, `z:<tid>:flight`, in the same tenant as the walkthrough's `vault`, called by the same organisation agent.
+- **What you need:** the `.env` from Get Started (`T3N_API_KEY`, `AGENT_DID`, `AGENT_API_KEY`), a free Duffel **test** token, Rust with `wasm32-wasip2`, Node.js 22, and test credits (registering costs about as much as the walkthrough's `vault` did). The passport comes from the [Private Doc Scanner](https://github.com/Terminal-3/private-doc-scanner) (recommended) or a JSON file the customer fills in; sample data is in [`examples/`](examples/).
+- **Build ideas:**
+  - the same shape for hotels, rail or car hire: another API, another host in the grant;
+  - the agent searches, the customer approves, then the agent books;
+  - a per-agent spend limit checked in your own map before `book-offer`;
+  - loyalty numbers or seat preferences stored in the traveller record.
+- **Docs:** [Flight Booking](https://docs.terminal3.io/developers/adk/use-cases/flight-booking).
+
 | Function | Who calls it | What it does |
 |---|---|---|
 | `save-traveller` | The customer, for themselves | Saves their traveller record (title, phone, and their passport unless it comes from the scanner) in `z:<tid>:travellers` |
