@@ -108,7 +108,7 @@ npm run flight search LHR JFK 2026-12-15   # as the agent
 npm run flight book <offer_id> <passenger_id> <total_amount> <total_currency>
 ```
 
-`setup` registers the contract at the tail `flight`, creates the private `secrets` and `travellers` maps for it, and seals your Duffel key in `secrets`; it's safe to re-run. In this walkthrough you are both the customer and the developer, as in the Terminal 3 guide; in production the customer signs in with their own key and runs `save-traveller` themselves.
+`setup` registers the contract at the tail `flight`, creates the private `secrets` and `travellers` maps for it, and seals your Duffel key in `secrets`; it's safe to re-run. It records the contract id as `FLIGHT_CONTRACT_ID` in `starter/.env`: keep that line, because T3N has no call that looks the id up again. To run setup from another machine against an already-registered version, copy the line across. In this walkthrough you are both the customer and the developer, as in the Terminal 3 guide; in production the customer signs in with their own key and runs `save-traveller` themselves.
 
 **Fund your agent before searching.** The 5 credits from Get Started cover the vault's `check`, but calls that go out to Duffel cost far more: on testnet a single search used up 5 credits. 100 credits (`--amount 100000000`, in base units) was enough for a search and a booking. The agent pays for its own calls, so the top-up comes from your balance, not the contract's.
 
