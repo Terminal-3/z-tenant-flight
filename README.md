@@ -8,7 +8,7 @@ A Rust contract that runs inside the Terminal 3 (T3N) enclave under your own ten
 
 - **What it does:** your agent searches Duffel for flights and books one for a customer. It only ever sees offers and the booking reference; the customer's details go from the enclave straight to Duffel.
 - **What it adds to the Get Started setup:** outbound HTTP to a real API, an API key sealed in the enclave (`z:<tid>:secrets`), a grant that allows exactly one host (`api.duffel.com`), and `{{profile.*}}` placeholders for the customer's name and email. It's a second contract, `z:<tid>:flight`, in the same tenant as the walkthrough's `vault`, called by the same organisation agent.
-- **What you need:** the `.env` from Get Started (`T3N_API_KEY`, `AGENT_DID`, `AGENT_API_KEY`), a free Duffel **test** token, Rust with `wasm32-wasip2`, Node.js 22, and test credits: registering costs about as much as the walkthrough's `vault` did, and your agent needs about 100 credits for searching and booking. The passport comes from the [Private Doc Scanner](https://github.com/Terminal-3/private-doc-scanner) (recommended) or a JSON file the customer fills in; sample data is in [`examples/`](examples/).
+- **What you need:** the `.env` from Get Started (`T3N_API_KEY`, `AGENT_DID`, `AGENT_API_KEY`), a free Duffel **test** token, Rust with `wasm32-wasip2`, Node.js 22, and test credits: registering costs about as much as the walkthrough's `vault` did, and your agent needs at least 300 credits for searching and booking. The passport comes from the [Private Doc Scanner](https://github.com/Terminal-3/private-doc-scanner) (recommended) or a JSON file the customer fills in; sample data is in [`examples/`](examples/).
 - **Build ideas:**
   - the same shape for hotels, rail or car hire: another API, another host in the grant;
   - the agent searches, the customer approves, then the agent books;
@@ -46,7 +46,7 @@ The contract refuses an expired passport, a scanned passport whose number, expir
 The scanner reads the passport on the customer's phone, checks its machine-readable zone and seals the reviewed details to their vault. Nobody types the number, and the contract only accepts fields the scanner verified.
 
 1. Scan the passport with the [Private Doc Scanner](https://github.com/Terminal-3/private-doc-scanner), signed in with the **same Terminal 3 account**, so its vault (`z:<tid>:doc-intake` and its `intake` map) is in the same tenant as this contract.
-2. Run `npm run flight -- setup --with-scanner`, which lets this contract read the vault's `intake` map. If you later re-run the scanner's own setup and it registers a new version, it resets that map's readers: run this again afterwards.
+2. Run `npm run flight -- setup --with-scanner`, which lets this contract read the vault's `intake` map. If it says no vault was found but you already have one, it was set up before the scanner recorded contract ids: run `npx tsx scripts/setup-vault.ts --reregister` in the scanner's `starter/` folder, then run this again. If you later re-run the scanner's own setup and it registers a new version, it resets that map's readers: run this again afterwards.
 3. Save a traveller record without a passport: [`examples/traveller-scanner.json`](examples/traveller-scanner.json).
 4. Book with `scanner_request_id` set to the scanner's reference for that passport.
 
@@ -103,14 +103,16 @@ cp .env.example .env                       # then fill it in, in your editor, ne
 npm run flight setup                       # register, create maps, seal the Duffel key
 npm run flight save-traveller              # as the customer: ../examples/traveller.json (or traveller-scanner.json)
 npm run flight grant                       # let your agent search and book (egress: api.duffel.com)
-npx -p @terminal3/t3n-sdk t3n agent fund --agent "$AGENT_DID" --amount 100000000 --env testnet   # 100 credits for the agent
+npm run flight fund-agent                  # 300 credits for your agent, from your own balance
 npm run flight search LHR JFK 2026-12-15   # as the agent
 npm run flight book <offer_id> <passenger_id> <total_amount> <total_currency>
 ```
 
 `setup` registers the contract at the tail `flight`, creates the private `secrets` and `travellers` maps for it, and seals your Duffel key in `secrets`; it's safe to re-run. It records the contract id as `FLIGHT_CONTRACT_ID` in `starter/.env`: keep that line, because T3N has no call that looks the id up again. To run setup from another machine against an already-registered version, copy the line across. In this walkthrough you are both the customer and the developer, as in the Terminal 3 guide; in production the customer signs in with their own key and runs `save-traveller` themselves.
 
-**Fund your agent before searching.** The 5 credits from Get Started cover the vault's `check`, but calls that go out to Duffel cost far more: on testnet a single search used up 5 credits. 100 credits (`--amount 100000000`, in base units) was enough for a search and a booking. The agent pays for its own calls, so the top-up comes from your balance, not the contract's.
+**Fund your agent before searching.** The agent pays for its own calls, and the 5 credits it got in Get Started are used up by the walkthrough itself, so it starts here at 0. Calls that go out to Duffel cost far more than the vault's `check`: on testnet one search used up 5 credits, and 100 credits covered exactly one search and one booking. `npm run flight fund-agent` gives it 300 credits from your own balance (`npm run flight fund-agent 500` for a different amount); top up the same way whenever it runs low.
+
+If an agent call fails with `The node refused the agent's call (HTTP 403)`, the agent is usually out of credit (`npm run flight fund-agent`) or not granted that function (`npm run flight grant`). The SDK drops the node's error body by design, so the script can't tell which.
 
 Take `offer_id`, `passenger_ids[0]`, `total_amount` and `total_currency` from a search result. Duffel test mode creates test orders only.
 
