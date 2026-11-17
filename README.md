@@ -6,7 +6,7 @@ A Rust contract that runs inside the Terminal 3 (T3N) enclave under your own ten
 
 | Function | Who calls it | What it does |
 |---|---|---|
-| `save-traveller` | The customer, for themselves | Saves their traveller record (title, phone, passport, and optionally name, date of birth, gender, email) in `z:<tid>:travellers` |
+| `save-traveller` | The customer, for themselves | Saves their traveller record (title, phone, and their passport unless it comes from the scanner) in `z:<tid>:travellers` |
 | `forget-traveller` | The customer, for themselves | Deletes their traveller record |
 | `search-offers` | The agent | Searches Duffel for flights. No personal data involved |
 | `book-offer` | The agent | Books an offer for the customer and returns `{ id, pnr, status }` |
@@ -19,28 +19,36 @@ The agent's `book-offer` input carries no personal data, only the offer it chose
 
 ## Where the passenger's details come from
 
-`book-offer` builds the Duffel passenger from three sources, all inside the enclave:
+| Duffel needs | Comes from |
+|---|---|
+| Name, date of birth, gender, email | The customer's **T3N profile**. The contract sends `{{profile.first_name}}`, `{{profile.last_name}}`, `{{profile.date_of_birth}}`, `{{profile.gender}}` and `{{profile.verified_contacts.email.value}}`, and the node fills them in on the way to Duffel, so these values never enter the contract. |
+| Title, phone number | The customer's **traveller record**, which they save for themselves with `save-traveller`. |
+| Passport number, issuing country, expiry | **Recommended:** the passport the customer scanned with the [Private Doc Scanner](https://github.com/Terminal-3/private-doc-scanner). **Or** the `passport` block of their traveller record. |
 
-1. **The traveller record** the customer saved with `save-traveller`: title, phone number and, normally, the passport.
-2. **The customer's T3N profile**, for any of name, date of birth, gender and email the record leaves out. The contract sends `{{profile.*}}` markers and the node fills them in on the way to Duffel, so those values never enter the contract at all.
-3. **Optionally, a passport sealed with the [Private Doc Scanner](https://github.com/Terminal-3/private-doc-scanner)**: pass `"scanner_request_id": "<the scanner reference>"` to `book-offer` and the passport comes from the customer's scanned, MRZ-verified passport instead of the record.
+The T3N profile doesn't hold title, phone or passport details, which is why the customer supplies those. If their profile is missing one of the five identity fields, `book-offer` fails with `user profile missing field: <field>`.
 
 The contract refuses an expired passport, a scanned passport whose number, expiry or issuing country failed the scanner's checks or was edited by hand, and a scanned record that belongs to someone else.
 
-### Bring your own data
+### Recommended: use the Private Doc Scanner for the passport
 
-You don't need the scanner. Save a traveller record in this format ([`examples/traveller.json`](examples/traveller.json), all values fictional):
+The scanner reads the passport on the customer's phone, checks its machine-readable zone and seals the reviewed details to their vault. Nobody types the number, and the contract only accepts fields the scanner verified.
+
+1. Scan the passport with the [Private Doc Scanner](https://github.com/Terminal-3/private-doc-scanner), signed in with the **same Terminal 3 account**, so its vault (`z:<tid>:doc-intake` and its `intake` map) is in the same tenant as this contract.
+2. Run `npm run flight setup --with-scanner`, which lets this contract read the vault's `intake` map. If you later re-run the scanner's own setup and it registers a new version, it resets that map's readers: run this again afterwards.
+3. Save a traveller record without a passport: [`examples/traveller-scanner.json`](examples/traveller-scanner.json).
+4. Book with `scanner_request_id` set to the scanner's reference for that passport.
+
+[`examples/scanner-record.json`](examples/scanner-record.json) shows what the scanner stores, if you want to see the fields the contract reads.
+
+### Or enter the passport yourself
+
+Save a traveller record with a `passport` block: [`examples/traveller.json`](examples/traveller.json) (fictional values).
 
 ```json
 {
   "title": "ms",
   "phone_number": "+442071234567",
-  "passport": { "number": "000000000", "issuing_country": "GB", "expires_on": "2031-04-11" },
-  "given_name": "Alex",
-  "family_name": "Example",
-  "born_on": "1990-04-12",
-  "gender": "f",
-  "email": "alex@example.com"
+  "passport": { "number": "000000000", "issuing_country": "GB", "expires_on": "2031-04-11" }
 }
 ```
 
@@ -51,18 +59,8 @@ You don't need the scanner. Save a traveller record in this format ([`examples/t
 | `passport.number` | unless you use the scanner | As printed |
 | `passport.issuing_country` | unless you use the scanner | ISO 3166 code, 2 or 3 letters (`GB` or `GBR`) |
 | `passport.expires_on` | unless you use the scanner | `YYYY-MM-DD` |
-| `given_name`, `family_name` | no | Left out: taken from your T3N profile |
-| `born_on` | no | `YYYY-MM-DD`. Left out: taken from your T3N profile |
-| `gender` | no | `m` or `f`. Left out: taken from your T3N profile |
-| `email` | no | Left out: your T3N profile's verified email |
 
-To rely on your T3N profile for the personal fields, use [`examples/traveller-profile.json`](examples/traveller-profile.json), which has only title, phone and passport. If your profile lacks one of those fields, `book-offer` fails with `user profile missing field: <field>`; add the field to the record instead.
-
-### Use the Private Doc Scanner
-
-Scan your passport with the [Private Doc Scanner](https://github.com/Terminal-3/private-doc-scanner), signed in with the same Terminal 3 account, so its vault (`z:<tid>:doc-intake` and its `intake` map) sits in the same tenant as this contract. Run setup with `--with-scanner` so this contract may read the vault, then book with `scanner_request_id`. If you re-run the scanner's own setup and it registers a new version, it resets the vault's readers: run `npm run flight setup --with-scanner` again afterwards. You still need a traveller record for title and phone; [`examples/traveller-profile.json`](examples/traveller-profile.json) without the `passport` block is enough.
-
-[`examples/scanner-record.json`](examples/scanner-record.json) shows the shape the scanner stores, if you want to test this path with sample data.
+No other fields are accepted: name, date of birth, gender and email always come from the T3N profile.
 
 ## Run it
 
@@ -76,7 +74,7 @@ cargo build --release                      # target/wasm32-wasip2/release/z_tena
 cd starter && npm install
 cp .env.example .env                       # then fill it in, in your editor, never in a chat
 npm run flight setup                       # register, create maps, seal the Duffel key
-npm run flight save-traveller              # as the customer: ../examples/traveller.json
+npm run flight save-traveller              # as the customer: ../examples/traveller.json (or traveller-scanner.json)
 npm run flight grant                       # let your agent search and book (egress: api.duffel.com)
 npm run flight search LHR JFK 2026-12-15   # as the agent
 npm run flight book <offer_id> <passenger_id> <total_amount> <total_currency>

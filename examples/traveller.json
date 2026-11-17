@@ -5,10 +5,5 @@
     "number": "000000000",
     "issuing_country": "GB",
     "expires_on": "2031-04-11"
-  },
-  "given_name": "Alex",
-  "family_name": "Example",
-  "born_on": "1990-04-12",
-  "gender": "f",
-  "email": "alex@example.com"
+  }
 }

@@ -2,14 +2,14 @@
 //! without the agent that books ever seeing their details.
 //!
 //! - `save-traveller` / `forget-traveller`: the customer saves or deletes
-//!   their own traveller record (title, phone, passport; optionally name, date
-//!   of birth, gender, email) in `z:<tid>:travellers`. Refused on a delegated
-//!   call.
+//!   their own traveller record (title, phone, and optionally a passport) in
+//!   `z:<tid>:travellers`. Refused on a delegated call.
 //! - `search-offers`: Duffel offer search over plain `http` (no PII).
-//! - `book-offer`: Duffel order over `http-with-placeholders`. The passenger
-//!   comes from the traveller record, and the passport from it or from a
-//!   passport sealed with the Private Doc Scanner (`z:<tid>:intake`). Fields
-//!   the record leaves out are `{{profile.*}}` markers filled host-side.
+//! - `book-offer`: Duffel order over `http-with-placeholders`. Name, date of
+//!   birth, gender and email are `{{profile.*}}` markers the host fills from
+//!   the customer's T3N profile; title and phone come from the traveller
+//!   record; the passport from that record or from a passport sealed with the
+//!   Private Doc Scanner (`z:<tid>:intake`).
 //!
 //! Maps (create before first use, readable and writable by this contract):
 //! `secrets` (`duffel_api_key`, seeded by the tenant) and `travellers`.

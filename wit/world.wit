@@ -22,8 +22,10 @@ interface contracts {
         context:      option<list<u8>>,
     }
 
-    /// The customer saves their own traveller record. Refused on a delegated call.
-    /// Input: see examples/traveller.json. Output: { saved, has_passport }
+    /// The customer saves their own traveller record: title, phone and, unless the
+    /// passport comes from the Private Doc Scanner, their passport. Name, date of
+    /// birth, gender and email always come from their T3N profile.
+    /// Refused on a delegated call. Input: see examples/. Output: { saved, has_passport }
     save-traveller: func(req: generic-input) -> result<list<u8>, string>;
 
     /// The customer deletes their own traveller record. Refused on a delegated call.

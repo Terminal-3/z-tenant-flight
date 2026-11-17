@@ -1,11 +1,11 @@
 //! Traveller details for a booking: who is flying and on which passport.
 //!
-//! A customer saves a traveller record for themselves with `save-traveller`;
-//! it lives in `z:<tid>:travellers` under their own DID. Name, date of birth,
-//! gender and email are optional there: any left out are filled host-side
-//! from the customer's T3N profile through `{{profile.*}}` markers. The
-//! passport comes either from the record or from a passport the customer
-//! sealed with the Private Doc Scanner (`z:<tid>:intake`).
+//! Name, date of birth, gender and email always come from the customer's T3N
+//! profile: they are `{{profile.*}}` markers the host fills in, so they never
+//! enter this contract. What the profile doesn't hold, the customer supplies:
+//! a traveller record they save with `save-traveller` (title, phone, and
+//! optionally a passport) in `z:<tid>:travellers`, and a passport either in
+//! that record or sealed with the Private Doc Scanner (`z:<tid>:intake`).
 //!
 //! Everything here is pure, so it runs under `cargo test`. Errors name the
 //! field, never the value.
@@ -24,7 +24,6 @@ pub const TRAVELLERS_MAP_TAIL: &str = "travellers";
 pub const SCANNER_INTAKE_MAP_TAIL: &str = "intake";
 
 const TITLES: [&str; 5] = ["mr", "ms", "mrs", "miss", "dr"];
-const GENDERS: [&str; 2] = ["m", "f"];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -33,16 +32,6 @@ pub struct Traveller {
     pub phone_number: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub passport: Option<Passport>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub given_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub family_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub born_on: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub gender: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub email: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,20 +57,6 @@ pub fn parse_traveller(bytes: &[u8]) -> Result<Traveller, String> {
     }
     if !is_e164(&t.phone_number) {
         return bad("phone_number", "must be in international format, e.g. +442071234567");
-    }
-    for (field, value) in [("given_name", &t.given_name), ("family_name", &t.family_name)] {
-        if value.as_deref().is_some_and(|v| v.trim().is_empty()) {
-            return bad(field, "must not be empty; leave it out to use your T3N profile");
-        }
-    }
-    if t.born_on.as_deref().is_some_and(|d| parse_date(d).is_none()) {
-        return bad("born_on", "must be a date in YYYY-MM-DD form");
-    }
-    if t.gender.as_deref().is_some_and(|g| !GENDERS.contains(&g)) {
-        return bad("gender", "must be m or f");
-    }
-    if t.email.as_deref().is_some_and(|e| !e.contains('@')) {
-        return bad("email", "must be an email address");
     }
     if let Some(p) = &mut t.passport {
         if p.number.trim().is_empty() {
@@ -149,23 +124,23 @@ pub fn passport_from_scanner(record: &[u8], caller_hex: &str) -> Result<Passport
     Ok(Passport { number, issuing_country, expires_on })
 }
 
-/// The Duffel passenger object. Fields the traveller record leaves out are
-/// `{{profile.*}}` markers, resolved by the host from the customer's profile.
+/// The Duffel passenger object: identity from the customer's T3N profile
+/// (`{{profile.*}}` markers the host resolves), the rest from the traveller
+/// record and passport.
 pub fn passenger(passenger_id: &str, t: &Traveller, passport: &Passport, today: Date) -> Result<Value, String> {
     let expiry = parse_date(&passport.expires_on).ok_or_else(|| "book-offer: passport expires_on is not a date".to_string())?;
     if expiry < today {
         return Err("book-offer: the passport has expired".to_string());
     }
-    let or_profile = |v: &Option<String>, marker: &str| v.clone().unwrap_or_else(|| marker.to_string());
     Ok(json!({
         "id": passenger_id,
         "title": t.title,
         "phone_number": t.phone_number,
-        "given_name": or_profile(&t.given_name, "{{profile.first_name}}"),
-        "family_name": or_profile(&t.family_name, "{{profile.last_name}}"),
-        "born_on": or_profile(&t.born_on, "{{profile.date_of_birth}}"),
-        "gender": or_profile(&t.gender, "{{profile.gender}}"),
-        "email": or_profile(&t.email, "{{profile.verified_contacts.email.value}}"),
+        "given_name": "{{profile.first_name}}",
+        "family_name": "{{profile.last_name}}",
+        "born_on": "{{profile.date_of_birth}}",
+        "gender": "{{profile.gender}}",
+        "email": "{{profile.verified_contacts.email.value}}",
         "identity_documents": [{
             "type": "passport",
             "unique_identifier": passport.number,
