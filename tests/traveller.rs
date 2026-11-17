@@ -1,0 +1,90 @@
+use z_tenant_flight::traveller::*;
+
+const FULL: &[u8] = include_bytes!("../examples/traveller.json");
+const PROFILE: &[u8] = include_bytes!("../examples/traveller-profile.json");
+const SCANNED: &[u8] = include_bytes!("../examples/scanner-record.json");
+const OWNER: &str = "1111111111111111111111111111111111111111";
+const TODAY: Date = (2026, 11, 17);
+
+fn edit(bytes: &[u8], f: impl FnOnce(&mut serde_json::Value)) -> Vec<u8> {
+    let mut v: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    f(&mut v);
+    serde_json::to_vec(&v).unwrap()
+}
+
+#[test]
+fn full_record_needs_no_profile() {
+    let t = parse_traveller(FULL).unwrap();
+    let p = passenger("pas_1", &t, t.passport.as_ref().unwrap(), TODAY).unwrap();
+    assert!(!p.to_string().contains("{{profile."), "{p}");
+    assert_eq!(p["identity_documents"][0]["issuing_country_code"], "GB");
+    assert_eq!(p["identity_documents"][0]["type"], "passport");
+    assert_eq!(p["id"], "pas_1");
+}
+
+#[test]
+fn missing_fields_come_from_the_profile() {
+    let t = parse_traveller(PROFILE).unwrap();
+    let p = passenger("pas_1", &t, t.passport.as_ref().unwrap(), TODAY).unwrap();
+    assert_eq!(p["given_name"], "{{profile.first_name}}");
+    assert_eq!(p["family_name"], "{{profile.last_name}}");
+    assert_eq!(p["born_on"], "{{profile.date_of_birth}}");
+    assert_eq!(p["gender"], "{{profile.gender}}");
+    assert_eq!(p["email"], "{{profile.verified_contacts.email.value}}");
+    assert_eq!(p["title"], "ms");
+}
+
+#[test]
+fn alpha3_country_is_normalised() {
+    let t = parse_traveller(&edit(FULL, |v| v["passport"]["issuing_country"] = "nld".into())).unwrap();
+    assert_eq!(t.passport.unwrap().issuing_country, "NL");
+    assert_eq!(alpha2("D"), Some("DE"));
+    assert_eq!(alpha2("GBD"), Some("GB"));
+    assert_eq!(alpha2("XXX"), None);
+}
+
+#[test]
+fn invalid_records_are_refused_without_echoing_values() {
+    for (field, value) in [("title", "lord"), ("phone_number", "0207 123"), ("gender", "x"), ("born_on", "12/04/1990")] {
+        let err = parse_traveller(&edit(FULL, |v| v[field] = value.into())).unwrap_err();
+        assert!(err.contains(field), "{err}");
+        assert!(!err.contains(value), "error echoed the value: {err}");
+    }
+    let err = parse_traveller(&edit(FULL, |v| v["passport"]["issuing_country"] = "ZZ".into())).unwrap_err();
+    assert!(err.contains("issuing_country"), "{err}");
+    assert!(parse_traveller(&edit(FULL, |v| v["passport_number"] = "1".into())).is_err(), "unknown fields are refused");
+}
+
+#[test]
+fn expired_passport_is_refused() {
+    let t = parse_traveller(FULL).unwrap();
+    let pp = t.passport.clone().unwrap();
+    assert!(passenger("pas_1", &t, &pp, (2031, 4, 11)).is_ok());
+    assert!(passenger("pas_1", &t, &pp, (2031, 4, 12)).unwrap_err().contains("expired"));
+}
+
+#[test]
+fn scanner_passport_is_used_for_its_owner() {
+    let pp = passport_from_scanner(SCANNED, OWNER).unwrap();
+    assert_eq!(pp, Passport { number: "000000000".into(), issuing_country: "GB".into(), expires_on: "2031-04-11".into() });
+}
+
+#[test]
+fn scanner_passport_of_someone_else_is_not_found() {
+    let err = passport_from_scanner(SCANNED, "2222222222222222222222222222222222222222").unwrap_err();
+    assert!(err.contains("no scanned passport"), "{err}");
+}
+
+#[test]
+fn unverified_or_edited_scanner_fields_are_refused() {
+    let unverified = edit(SCANNED, |v| v["submission"]["documents"][0]["fields"]["document_number"]["validated"] = false.into());
+    assert!(passport_from_scanner(&unverified, OWNER).unwrap_err().contains("not verified"));
+    let edited = edit(SCANNED, |v| v["submission"]["documents"][0]["fields"]["date_of_expiry"]["user_edited"] = true.into());
+    assert!(passport_from_scanner(&edited, OWNER).unwrap_err().contains("not verified"));
+}
+
+#[test]
+fn today_from_cluster_seconds() {
+    assert_eq!(today(0), (1970, 1, 1));
+    assert_eq!(today(1_794_873_600), (2026, 11, 17));
+}

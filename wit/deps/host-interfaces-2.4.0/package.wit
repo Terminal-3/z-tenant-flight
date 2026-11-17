@@ -1,22 +1,8 @@
-// Held at @2.1.0 deliberately so existing contracts (user / vc /
-// agent-registry / organisation / payroll), all pinned to @2.1.0
-// in their per-contract wit/deps copies, continue to link against
-// the host runtime. The new T3-TS-029 §6.3 / §7.1–§7.3 interfaces
-// (`profile-ref`, `vp.verify`, `clock`,
-// `authorisation.check-authorized`) are added at @2.1.0 — adding
-// interfaces is structurally additive and the wasmtime linker
-// resolves a contract's @2.1.0 import against the host's @2.1.0
-// surface regardless of how many interfaces the host hosts.
-//
-// The canonical source-of-truth file at `tee_contracts/wit/host-
-// interfaces/package.wit` is at @2.2.0 to flag the spec-level
-// state ("these are the latest shapes"); contracts that opt into
-// any of the new interfaces will copy from canonical and bump
-// their world.wit + their host-interfaces dep folder name +
-// CONTRACT_VERSION in lockstep at that point. Bumping every
-// contract pre-emptively is deferred per the staging-no-major-
-// bumps memory rule.
-package host:interfaces@2.1.0;
+// The host serves one surface per major version: wasmtime resolves a
+// contract's `@2.x` import against this package whatever minor the
+// contract was built against, so additions here are additive for every
+// deployed contract.
+package host:interfaces@2.4.0;
 
 interface http {
   enum verb {
@@ -51,11 +37,14 @@ interface http {
 /// reqwest call, so a compromised contract that tries to read the
 /// substituted bytes back finds only the unresolved template.
 ///
-/// Access control is the agent delegation grant (`agent-auth-update`,
-/// scoped per-agent/per-contract/per-function): the grant gates which
-/// contract may act on the user's profile. The host enforces only the
-/// hard `profile`-namespace gate — `{{secrets.<x>}}` and any namespace
-/// other than `profile` is rejected with `placeholder-denied`.
+/// Per-contract allowlist (`ContractManifest.placeholder_allowlist`)
+/// gates which profile fields may be substituted. Unknown fields
+/// (`placeholder-unknown`) and disallowed fields (`placeholder-denied`)
+/// fail closed with a typed variant so the contract author sees the
+/// precise reason at debug time. `{{secrets.<x>}}` and any namespace
+/// other than `profile` is rejected with `placeholder-denied` regardless
+/// of the manifest, since exposing host secrets through templating is
+/// out of scope for v1.
 ///
 /// Egress is gated by the existing per-contract `http_allow_list`
 /// (same allowlist plain `http` uses), so a contract opted into both
@@ -85,9 +74,10 @@ interface http-with-placeholders {
     /// Target host is not on the contract's `http_allow_list`. Payload
     /// is the offending host string for operator diagnostics.
     egress-denied(string),
-    /// A placeholder referenced a namespace other than `profile`, or
-    /// used a malformed marker (nested / non-snake-case field). Payload
-    /// identifies the offending marker.
+    /// A placeholder referenced a namespace other than `profile`, used
+    /// a malformed marker (nested / non-snake-case field), OR named a
+    /// field that is NOT on the contract's `placeholder_allowlist.profile`
+    /// set. Payload identifies the offending marker.
     placeholder-denied(string),
     /// A `{{profile.<field>}}` marker resolved to no value on the
     /// calling user's profile. Payload names the field. Distinct from
@@ -116,6 +106,18 @@ interface logging {
 
   /// Log an error message
   error: func(message: string) -> result<_, string>;
+
+  /// MAT-1634 — a permanent, per-user audit event. Host stamps the
+  /// subject/actor/vc_id from the verified dispatch context; the guest
+  /// supplies only the content. No-op outside a tenant-dispatched call.
+  record audit-event {
+    action: string,
+    target: string,
+    outcome: string,
+    details: option<string>,
+  }
+
+  audit: func(event: audit-event) -> result<_, string>;
 }
 
 interface user-profile {
@@ -197,11 +199,11 @@ interface signing {
   /// hash — nothing more. Pre-image / envelope assembly (EIP-191
   /// personal-sign, EIP-155, EIP-712, RLP tx encoding) is the
   /// caller's responsibility, so the same primitive can serve any
-  /// envelope shape without inheriting a foreign prefix policy.
-  /// `tee:delegation` builds the EIP-191 prefix via
-  /// `delegation_types::eip191_prefix` before calling here.
+  /// envelope shape without inheriting a foreign prefix policy — a caller
+  /// needing an EIP-191 personal-sign builds that prefix itself before
+  /// calling here.
   ///
-  /// See T3-TS-027 §5.5–§5.6 + T3-TS-028 §7.1 + T3-TS-030 §2.
+  /// See T3-TS-027 §5.5–§5.6 + T3-TS-028 §7.1.
   sign-as-user: func(message: list<u8>) -> result<list<u8>, sign-as-user-error>;
 
   /// Sign `message` with a specific wallet the caller DID owns
@@ -236,6 +238,36 @@ interface signing {
   /// Probe whether a wallet exists for a given DID. Checks
   /// `user_wallets[did]` presence under T3-TS-028.
   has-user-wallet: func(did: list<u8>) -> result<bool, sign-as-user-error>;
+
+  /// T3-TS-056 §6.1. Sign `claims` as a compact ES256 JWS with a P-256
+  /// key derived from the cluster key for the calling contract,
+  /// `purpose` and `generation`. Every node derives the same key; two
+  /// contracts never share one. The host writes the protected header
+  /// `{alg, typ, kid}` with `kid = "<purpose>.<generation>"`. Gated by
+  /// `auth.host_iface_allowlists["signing.sign-jws"]`.
+  record sign-jws-request {
+    /// Key purpose, `[a-z0-9-]{1,48}`.
+    purpose: string,
+    /// Key generation, >= 1.
+    generation: u32,
+    /// JOSE `typ` header value.
+    typ: string,
+    /// JSON object, the JWS payload.
+    claims: string,
+  }
+
+  variant sign-jws-error {
+    not-authorized,
+    invalid-request(string),
+    key-unavailable(string),
+  }
+
+  sign-jws: func(request: sign-jws-request) -> result<string, sign-jws-error>;
+
+  /// Public halves of `contract`'s derived keys for `purpose`, one JWK
+  /// per generation, as a JWKS JSON document. Public data: no allowlist.
+  jws-public-keys: func(contract: string, purpose: string, generations: list<u32>)
+    -> result<string, sign-jws-error>;
 
   // NOTE: no `delete-user-wallet` binding. Under T3-TS-028,
   // `remove-user` refuses when the DID owns wallets, and the
@@ -397,14 +429,22 @@ interface contracts-call {
     reentrant(string),
     /// The inner contract function ran to completion but returned an
     /// error response (the target's own error shape, serialised as a
-    /// string). The OCC tx is NOT auto-rolled back by the host — the
-    /// outer contract decides whether to surface the failure (which
-    /// will roll back at the service boundary) or absorb it.
+    /// string). The host does not distinguish this from a trap for tx
+    /// purposes: the shared transaction is dropped entirely, not just
+    /// the inner's own writes, so the calling contract's `active_tx` is
+    /// gone by the time this error is visible. There is no path back
+    /// to a usable transaction — the calling contract's own export must
+    /// itself return an error to roll back cleanly. (A dispatcher-level
+    /// failure that occurs BEFORE the inner contract ever runs — bad
+    /// target, malformed input, budget check — is a different case: the
+    /// outer's transaction was never touched, so it is untouched either
+    /// way. `target-unknown`/`not-allowlisted`/`depth-exceeded` above
+    /// are exactly that case.)
     inner-failed(string),
     /// The inner contract trapped (panic, fuel exhaustion, host-fn
-    /// abort). The tx state is salvageable but the inner write-set
-    /// is discarded — host will surface this and the outer contract
-    /// should typically return its own error to roll back.
+    /// abort). Same consequence as `inner-failed`: the shared
+    /// transaction is gone, not salvageable, and the calling contract
+    /// must return its own error to roll back.
     inner-trapped(string),
     /// `input` bytes are not valid JSON, or the target's response
     /// failed to serialise back to bytes.
@@ -426,13 +466,21 @@ interface analytics {
   snapshot: func() -> result<list<u8>, string>;
   refresh: func() -> result<list<u8>, string>;
   range: func(request: list<u8>) -> result<list<u8>, string>;
+  // T3-TS-042 / MAT-1510: retro-index the historical USERS_MAP
+  // population through the analytics contract (the forward hook only
+  // indexes profiles written after the contract deploy). Additive,
+  // idempotent. Bounded + resumable: the request is optional
+  // `{cursor, max_batches}` JSON; the response carries the backfill
+  // report plus `next_cursor` (null when complete) and `done`. Additive
+  // host export — contracts that don't import it are unaffected; the
+  // linker satisfies a 3-func import against this 4-func host surface
+  // via subtyping.
+  reindex: func(request: list<u8>) -> result<list<u8>, string>;
 }
 
 /// Trigger leader-side consensus / orchestration helpers needed by
 /// the remaining unified admin actions.
 interface consensus-trigger {
-  indexing-backfill: func(request: list<u8>) -> result<list<u8>, string>;
-  indexing-activate: func(request: list<u8>) -> result<list<u8>, string>;
   dkg-trigger: func(request: list<u8>) -> result<list<u8>, string>;
 }
 
@@ -595,6 +643,43 @@ interface kv-store {
         end: list<u8>,
         limit: u32,
     ) -> result<list<tuple<list<u8>, list<u8>>>, string>;
+
+    /// Count the keys in the half-open range `[start, end)` over
+    /// `map-name` without materialising them. Same read gates as
+    /// `scan` (reserved-map refusal, tenant read authorisation,
+    /// delegated-read PII check) and the same read-set semantics —
+    /// the count does NOT join the tx's read-set.
+    ///
+    /// **Why this exists rather than counting a `scan` result.** The
+    /// walk happens host-side, so the guest pays one host-fn call
+    /// regardless of how many keys the range spans. That is what lets
+    /// a contract own the *bounds* — which are domain knowledge, e.g.
+    /// how a country code or a birth date encodes into a row key —
+    /// while the host owns *walking bytes*, which is mechanism. The
+    /// alternative, paging rows through `scan` to count them, forces
+    /// the caller to choose between per-row guest fuel and a host
+    /// interface that knows what a country is.
+    ///
+    /// `max-keys` bounds the walk exactly as `scan`'s `limit` bounds
+    /// its result: the host stops there and reports `saturated`, so a
+    /// caller cannot pin a node by counting an unbounded range. A
+    /// `max-keys` of `0` is rejected. Callers needing an exact count
+    /// past the bound split the range and sum.
+    range-count: func(
+        map-name: string,
+        start: list<u8>,
+        end: list<u8>,
+        max-keys: u64,
+    ) -> result<range-count-result, string>;
+
+    /// Outcome of a `range-count` walk.
+    record range-count-result {
+        /// Keys counted in `[start, end)`, capped at `max-keys`.
+        count: u64,
+        /// `true` when the walk stopped on `max-keys` rather than on
+        /// the end of the range — the count is a floor, not the total.
+        saturated: bool,
+    }
 }
 
 /// T3-TS-030 §8 token capability — read-only view of the calling
@@ -670,14 +755,6 @@ interface token {
   get-account-balance: func(account: list<u8>) -> result<balance-row, balance-error>;
 }
 
-/// Ephemeral key-value state store, scoped to the current execution context.
-/// Values are not persisted across invocations.
-interface state {
-  get-state: func(key: string) -> result<option<list<u8>>, string>;
-  put-state: func(key: string, value: list<u8>) -> result<_, string>;
-  delete-state: func(key: string) -> result<_, string>;
-}
-
 world interfaces {
   export http;
   export http-with-placeholders;
@@ -695,5 +772,4 @@ world interfaces {
   export kv-store;
   export token;
   export contracts-call;
-  export state;
 }

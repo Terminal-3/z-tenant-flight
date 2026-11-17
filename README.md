@@ -1,133 +1,96 @@
 # z-tenant-flight
 
-Duffel flight booking showcase for Trinity z-namespace tenants — v0.3.0.
+Let an AI agent book flights for a customer through the [Duffel](https://duffel.com) API, without the agent ever seeing who is flying.
 
-A Rust WASM contract that runs inside the Trinity TEE (Trusted Execution Environment) and calls the [Duffel](https://duffel.com) API synchronously via `host:interfaces/http`.
+A Rust contract that runs inside the Terminal 3 (T3N) enclave under your own tenant. The agent asks for a search and a booking; the customer's name, date of birth, contact details and passport stay inside the enclave and only go to Duffel. It builds on the [Terminal 3 Get Started guide](https://docs.terminal3.io/developers/adk/get-started/quickstart): same key, same organisation, same agent.
 
-## What this is
+| Function | Who calls it | What it does |
+|---|---|---|
+| `save-traveller` | The customer, for themselves | Saves their traveller record (title, phone, passport, and optionally name, date of birth, gender, email) in `z:<tid>:travellers` |
+| `forget-traveller` | The customer, for themselves | Deletes their traveller record |
+| `search-offers` | The agent | Searches Duffel for flights. No personal data involved |
+| `book-offer` | The agent | Books an offer for the customer and returns `{ id, pnr, status }` |
 
-Two contract functions exposed over WIT:
-
-| Function | What it does |
-|---|---|
-| `search-offers` | POST to Duffel `/air/offer-requests`, then GET `/air/offers` — returns a list of available flights |
-| `book-offer` | POST to Duffel `/air/orders` with full passenger PII — returns the booking ID and PNR |
-
-Privacy guarantee: passenger PII (passport number, date-of-birth, full name, email, phone) is passed in by the agent and used inside the enclave to call Duffel. Only the booking ID and PNR cross the WIT boundary back to the caller. Error responses from Duffel are logged inside the TEE and never forwarded to the caller.
-
-## Host-capability manifest
-
-Declare in your contract manifest:
+The agent's `book-offer` input carries no personal data, only the offer it chose:
 
 ```json
-{ "host_capabilities": ["kv_store", "logging", "tenant_context", "http"] }
+{ "offer_id": "off_…", "passenger_id": "pas_…", "total_amount": "199.00", "total_currency": "GBP" }
 ```
 
-The `http` capability enables outbound HTTP via the `tenant-http` linker world.
+## Where the passenger's details come from
 
-## Setup: providing the Duffel API key
+`book-offer` builds the Duffel passenger from three sources, all inside the enclave:
 
-Before deploying or calling this contract for the first time, the tenant SDK must:
+1. **The traveller record** the customer saved with `save-traveller`: title, phone number and, normally, the passport.
+2. **The customer's T3N profile**, for any of name, date of birth, gender and email the record leaves out. The contract sends `{{profile.*}}` markers and the node fills them in on the way to Duffel, so those values never enter the contract at all.
+3. **Optionally, a passport sealed with the [Private Doc Scanner](https://github.com/Terminal-3/private-doc-scanner)**: pass `"scanner_request_id": "<the scanner reference>"` to `book-offer` and the passport comes from the customer's scanned, MRZ-verified passport instead of the record.
 
-1. Create the `secrets` KV map in the z: namespace.
-2. Write the Duffel API key under the key `duffel_api_key`.
+The contract refuses an expired passport, a scanned passport whose number, expiry or issuing country failed the scanner's checks or was edited by hand, and a scanned record that belongs to someone else.
 
-```bash
-# Example via the tenant SDK / admin tooling:
-z_sdk.kv("secrets").set("duffel_api_key", "<your Duffel test API token>")
-```
+### Bring your own data
 
-The contract reads this value at runtime using `host:interfaces/kv-store` — no `secret` interface is involved. The `secrets` map is owned and populated externally by the tenant operator; the contract never writes to it.
-
-## Building
-
-```bash
-rustup target add wasm32-wasip2
-cargo build --target wasm32-wasip2 --release
-```
-
-The WASM artefact will be at `target/wasm32-wasip2/release/z_tenant_flight.wasm`.
-
-## Running tests (native)
-
-```bash
-cargo test --lib
-cargo clippy --all-targets -- -D warnings
-```
-
-## Contract functions
-
-### `search-offers`
-
-```wit
-search-offers: func(req: search-offers-req) -> result<search-offers-resp, string>;
-```
-
-Input:
+You don't need the scanner. Save a traveller record in this format ([`examples/traveller.json`](examples/traveller.json), all values fictional):
 
 ```json
 {
-  "origin": "LHR",
-  "destination": "JFK",
-  "departure_date": "2026-07-15",
-  "cabin_class": "economy",
-  "adult_count": 1
+  "title": "ms",
+  "phone_number": "+442071234567",
+  "passport": { "number": "000000000", "issuing_country": "GB", "expires_on": "2031-04-11" },
+  "given_name": "Alex",
+  "family_name": "Example",
+  "born_on": "1990-04-12",
+  "gender": "f",
+  "email": "alex@example.com"
 }
 ```
 
-Returns a list of `offer` records, each with `id`, `total_amount`, `total_currency`, and `expires_at`.
+| Field | Required | Format |
+|---|---|---|
+| `title` | yes | `mr`, `ms`, `mrs`, `miss` or `dr` |
+| `phone_number` | yes | International format, e.g. `+442071234567` |
+| `passport.number` | unless you use the scanner | As printed |
+| `passport.issuing_country` | unless you use the scanner | ISO 3166 code, 2 or 3 letters (`GB` or `GBR`) |
+| `passport.expires_on` | unless you use the scanner | `YYYY-MM-DD` |
+| `given_name`, `family_name` | no | Left out: taken from your T3N profile |
+| `born_on` | no | `YYYY-MM-DD`. Left out: taken from your T3N profile |
+| `gender` | no | `m` or `f`. Left out: taken from your T3N profile |
+| `email` | no | Left out: your T3N profile's verified email |
 
-### `book-offer`
+To rely on your T3N profile for the personal fields, use [`examples/traveller-profile.json`](examples/traveller-profile.json), which has only title, phone and passport. If your profile lacks one of those fields, `book-offer` fails with `user profile missing field: <field>`; add the field to the record instead.
 
-```wit
-book-offer: func(req: book-offer-req) -> result<booking, string>;
+### Use the Private Doc Scanner
+
+Scan your passport with the [Private Doc Scanner](https://github.com/Terminal-3/private-doc-scanner), signed in with the same Terminal 3 account, so its vault (`z:<tid>:doc-intake` and its `intake` map) sits in the same tenant as this contract. Run setup with `--with-scanner` so this contract may read the vault, then book with `scanner_request_id`. If you re-run the scanner's own setup and it registers a new version, it resets the vault's readers: run `npm run flight setup --with-scanner` again afterwards. You still need a traveller record for title and phone; [`examples/traveller-profile.json`](examples/traveller-profile.json) without the `passport` block is enough.
+
+[`examples/scanner-record.json`](examples/scanner-record.json) shows the shape the scanner stores, if you want to test this path with sample data.
+
+## Run it
+
+You need:
+- the [Get Started](https://docs.terminal3.io/developers/adk/get-started/quickstart) setup: your `T3N_API_KEY`, and an organisation agent's `AGENT_DID` and `AGENT_API_KEY` ([Create Your Organisation](https://docs.terminal3.io/developers/adk/get-started/create-organisation));
+- a Duffel **test** token (`duffel_test_…`) from your Duffel dashboard in test mode;
+- Rust with the `wasm32-wasip2` target, and Node.js 22.
+
+```bash
+cargo build --release                      # target/wasm32-wasip2/release/z_tenant_flight.wasm
+cd starter && npm install
+cp .env.example .env                       # then fill it in, in your editor, never in a chat
+npm run flight setup                       # register, create maps, seal the Duffel key
+npm run flight save-traveller              # as the customer: ../examples/traveller.json
+npm run flight grant                       # let your agent search and book (egress: api.duffel.com)
+npm run flight search LHR JFK 2026-12-15   # as the agent
+npm run flight book <offer_id> <passenger_id> <total_amount> <total_currency>
 ```
 
-Input:
+`setup` registers the contract at the tail `flight`, creates the private `secrets` and `travellers` maps for it, and seals your Duffel key in `secrets`; it's safe to re-run. In this walkthrough you are both the customer and the developer, as in the Terminal 3 guide; in production the customer signs in with their own key and runs `save-traveller` themselves.
 
-```json
-{
-  "offer_id": "off_abc123",
-  "passengers": [
-    {
-      "given_name": "Jane",
-      "family_name": "Smith",
-      "date_of_birth": "1990-01-15",
-      "passport_number": "AB1234567",
-      "nationality": "GB",
-      "passport_expiry": "2030-06-01",
-      "gender": "f",
-      "email": "jane@example.com",
-      "phone": "+441234567890"
-    }
-  ],
-  "total_amount": "199.00",
-  "total_currency": "GBP"
-}
+Take `offer_id`, `passenger_ids[0]`, `total_amount` and `total_currency` from a search result. Duffel test mode creates test orders only.
+
+## Build and test
+
+```bash
+cargo test --target x86_64-unknown-linux-gnu   # .cargo/config.toml defaults the target to wasm32-wasip2
+cargo build --release
 ```
 
-Returns `{ "id": "ord_...", "pnr": "ABC123", "status": "confirmed" }`.
-
-## Architecture
-
-```mermaid
-sequenceDiagram
-    participant Agent as agent
-    participant T3Network as T3 Network<br/>(z-namespace contract)
-    participant Duffel
-
-    Agent->>T3Network: search-offers(origin, dest, ...)
-    T3Network->>Duffel: POST /air/offer-requests
-    Duffel-->>T3Network: { offer_request_id }
-    T3Network->>Duffel: GET /air/offers?id=...
-    Duffel-->>T3Network: [ offer, offer, ... ]
-    T3Network-->>Agent: { offers: [...] }
-
-    Agent->>T3Network: book-offer(offer_id, passengers)
-    Note over Agent,T3Network: PII enters T3 Network here
-    T3Network->>Duffel: POST /air/orders
-    Duffel-->>T3Network: { id, pnr, status }
-    Note over Agent,T3Network: PII never returned
-    T3Network-->>Agent: { id, pnr, status }
-```
-
+The host interfaces in `wit/deps/` are vendored from the Trinity release `testnet-v1.0.12` (`host:interfaces@2.4.0`, `host:tenant@2.0.0`). Importing `http-with-placeholders` puts the contract in the `tenant-http-placeholders` world.
