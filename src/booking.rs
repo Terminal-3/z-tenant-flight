@@ -1,10 +1,10 @@
 //! book_offer: books a Duffel offer for the calling customer and returns the PNR.
 //!
-//! The input carries no passenger details. Name, date of birth, gender and
-//! email are `{{profile.*}}` markers the host fills from the customer's T3N
-//! profile, so those values never enter this contract. Title and phone come
-//! from the customer's traveller record (`save-traveller`), and the passport
-//! from that record or from a passport they sealed with the Private Doc
+//! The input carries no passenger details. Name and email are `{{profile.*}}`
+//! markers the host fills from the customer's T3N profile, so those values
+//! never enter this contract. Title and phone come from the customer's
+//! traveller record (`save-traveller`); the passport, with date of birth and
+//! sex, from that record or from a passport they sealed with the Private Doc
 //! Scanner. Only the booking id, PNR and status come back.
 
 #[derive(serde::Deserialize)]

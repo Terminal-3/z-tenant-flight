@@ -4,6 +4,8 @@
   "passport": {
     "number": "000000000",
     "issuing_country": "GB",
-    "expires_on": "2031-04-11"
+    "expires_on": "2031-04-11",
+    "date_of_birth": "1990-04-12",
+    "sex": "F"
   }
 }

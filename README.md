@@ -2,7 +2,7 @@
 
 Let an AI agent book flights for a customer through the [Duffel](https://duffel.com) API, without the agent ever seeing who is flying.
 
-A Rust contract that runs inside the Terminal 3 (T3N) enclave under your own tenant. The agent asks for a search and a booking; the customer's name, date of birth, contact details and passport stay inside the enclave and only go to Duffel. It builds on the [Terminal 3 Get Started guide](https://docs.terminal3.io/developers/adk/get-started/quickstart): same key, same organisation, same agent.
+A Rust contract that runs inside the Terminal 3 (T3N) enclave under your own tenant. The agent asks for a search and a booking; the customer's name, email, phone and passport details stay inside the enclave and only go to Duffel. It builds on the [Terminal 3 Get Started guide](https://docs.terminal3.io/developers/adk/get-started/quickstart): same key, same organisation, same agent.
 
 | Function | Who calls it | What it does |
 |---|---|---|
@@ -21,13 +21,13 @@ The agent's `book-offer` input carries no personal data, only the offer it chose
 
 | Duffel needs | Comes from |
 |---|---|
-| Name, date of birth, gender, email | The customer's **T3N profile**. The contract sends `{{profile.first_name}}`, `{{profile.last_name}}`, `{{profile.date_of_birth}}`, `{{profile.gender}}` and `{{profile.verified_contacts.email.value}}`, and the node fills them in on the way to Duffel, so these values never enter the contract. |
+| Given name, family name, email | The customer's **T3N profile**. The contract sends `{{profile.first_name}}`, `{{profile.last_name}}` and `{{profile.verified_contacts.email.value}}`, and the node fills them in on the way to Duffel, so these values never enter the contract. |
 | Title, phone number | The customer's **traveller record**, which they save for themselves with `save-traveller`. |
-| Passport number, issuing country, expiry | **Recommended:** the passport the customer scanned with the [Private Doc Scanner](https://github.com/Terminal-3/private-doc-scanner). **Or** the `passport` block of their traveller record. |
+| Passport number, issuing country, expiry, date of birth, sex | **Recommended:** the passport the customer scanned with the [Private Doc Scanner](https://github.com/Terminal-3/private-doc-scanner). **Or** the `passport` block of their traveller record. |
 
-The T3N profile doesn't hold title, phone or passport details, which is why the customer supplies those. If their profile is missing one of the five identity fields, `book-offer` fails with `user profile missing field: <field>`.
+The T3N profile holds only the customer's name and email, so the customer supplies everything else. Date of birth and sex (Duffel's `born_on` and `gender`) are read from the passport. If the profile is missing a name or a verified email, `book-offer` fails with `user profile missing field: <field>`.
 
-The contract refuses an expired passport, a scanned passport whose number, expiry or issuing country failed the scanner's checks or was edited by hand, and a scanned record that belongs to someone else.
+The contract refuses an expired passport, a scanned passport whose number, expiry, issuing country, date of birth or sex failed the scanner's checks or was edited by hand, a sex other than M or F (Duffel accepts only those), and a scanned record that belongs to someone else.
 
 ### Recommended: use the Private Doc Scanner for the passport
 
@@ -48,7 +48,13 @@ Save a traveller record with a `passport` block: [`examples/traveller.json`](exa
 {
   "title": "ms",
   "phone_number": "+442071234567",
-  "passport": { "number": "000000000", "issuing_country": "GB", "expires_on": "2031-04-11" }
+  "passport": {
+    "number": "000000000",
+    "issuing_country": "GB",
+    "expires_on": "2031-04-11",
+    "date_of_birth": "1990-04-12",
+    "sex": "F"
+  }
 }
 ```
 
@@ -59,8 +65,10 @@ Save a traveller record with a `passport` block: [`examples/traveller.json`](exa
 | `passport.number` | unless you use the scanner | As printed |
 | `passport.issuing_country` | unless you use the scanner | ISO 3166 code, 2 or 3 letters (`GB` or `GBR`) |
 | `passport.expires_on` | unless you use the scanner | `YYYY-MM-DD` |
+| `passport.date_of_birth` | unless you use the scanner | `YYYY-MM-DD` |
+| `passport.sex` | unless you use the scanner | `M` or `F`, as printed |
 
-No other fields are accepted: name, date of birth, gender and email always come from the T3N profile.
+No other fields are accepted: name and email always come from the T3N profile.
 
 ## Run it
 

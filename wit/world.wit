@@ -23,8 +23,8 @@ interface contracts {
     }
 
     /// The customer saves their own traveller record: title, phone and, unless the
-    /// passport comes from the Private Doc Scanner, their passport. Name, date of
-    /// birth, gender and email always come from their T3N profile.
+    /// passport comes from the Private Doc Scanner, their passport (with date of
+    /// birth and sex). Name and email always come from their T3N profile.
     /// Refused on a delegated call. Input: see examples/. Output: { saved, has_passport }
     save-traveller: func(req: generic-input) -> result<list<u8>, string>;
 

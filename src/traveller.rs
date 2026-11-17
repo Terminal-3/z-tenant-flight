@@ -1,11 +1,12 @@
 //! Traveller details for a booking: who is flying and on which passport.
 //!
-//! Name, date of birth, gender and email always come from the customer's T3N
-//! profile: they are `{{profile.*}}` markers the host fills in, so they never
-//! enter this contract. What the profile doesn't hold, the customer supplies:
-//! a traveller record they save with `save-traveller` (title, phone, and
-//! optionally a passport) in `z:<tid>:travellers`, and a passport either in
-//! that record or sealed with the Private Doc Scanner (`z:<tid>:intake`).
+//! Name and email come from the customer's T3N profile: `{{profile.*}}`
+//! markers the host fills in, so they never enter this contract. The profile
+//! holds nothing else Duffel needs, so the customer supplies the rest: title
+//! and phone in a traveller record they save with `save-traveller`
+//! (`z:<tid>:travellers`), and the passport, including date of birth and sex,
+//! either in that record or sealed with the Private Doc Scanner
+//! (`z:<tid>:intake`).
 //!
 //! Everything here is pure, so it runs under `cargo test`. Errors name the
 //! field, never the value.
@@ -41,6 +42,9 @@ pub struct Passport {
     /// ISO 3166-1 alpha-2 (`GB`) or alpha-3 (`GBR`); stored as alpha-2.
     pub issuing_country: String,
     pub expires_on: String,
+    pub date_of_birth: String,
+    /// `M` or `F` as printed; stored as Duffel's `m` / `f`.
+    pub sex: String,
 }
 
 pub type Date = (i64, u32, u32);
@@ -65,6 +69,12 @@ pub fn parse_traveller(bytes: &[u8]) -> Result<Traveller, String> {
         if parse_date(&p.expires_on).is_none() {
             return bad("passport.expires_on", "must be a date in YYYY-MM-DD form");
         }
+        if parse_date(&p.date_of_birth).is_none() {
+            return bad("passport.date_of_birth", "must be a date in YYYY-MM-DD form");
+        }
+        p.sex = duffel_gender(&p.sex)
+            .ok_or_else(|| "save-traveller: passport.sex: must be M or F".to_string())?
+            .to_string();
         p.issuing_country = alpha2(&p.issuing_country)
             .ok_or_else(|| "save-traveller: passport.issuing_country: must be an ISO country code, e.g. GB or GBR".to_string())?
             .to_string();
@@ -121,12 +131,19 @@ pub fn passport_from_scanner(record: &[u8], caller_hex: &str) -> Result<Passport
     let issuing_country = alpha2(field("issuing_country")?)
         .ok_or_else(|| "book-offer: scanned passport issuing_country is not a supported country code".to_string())?
         .to_string();
-    Ok(Passport { number, issuing_country, expires_on })
+    let date_of_birth = field("date_of_birth")?.to_string();
+    if parse_date(&date_of_birth).is_none() {
+        return Err("book-offer: scanned passport date_of_birth is not a YYYY-MM-DD date".to_string());
+    }
+    let sex = duffel_gender(field("sex")?)
+        .ok_or_else(|| "book-offer: scanned passport sex is not M or F, which Duffel requires".to_string())?
+        .to_string();
+    Ok(Passport { number, issuing_country, expires_on, date_of_birth, sex })
 }
 
-/// The Duffel passenger object: identity from the customer's T3N profile
-/// (`{{profile.*}}` markers the host resolves), the rest from the traveller
-/// record and passport.
+/// The Duffel passenger object: name and email from the customer's T3N
+/// profile (`{{profile.*}}` markers the host resolves), the rest from the
+/// traveller record and passport.
 pub fn passenger(passenger_id: &str, t: &Traveller, passport: &Passport, today: Date) -> Result<Value, String> {
     let expiry = parse_date(&passport.expires_on).ok_or_else(|| "book-offer: passport expires_on is not a date".to_string())?;
     if expiry < today {
@@ -138,8 +155,8 @@ pub fn passenger(passenger_id: &str, t: &Traveller, passport: &Passport, today: 
         "phone_number": t.phone_number,
         "given_name": "{{profile.first_name}}",
         "family_name": "{{profile.last_name}}",
-        "born_on": "{{profile.date_of_birth}}",
-        "gender": "{{profile.gender}}",
+        "born_on": passport.date_of_birth,
+        "gender": passport.sex,
         "email": "{{profile.verified_contacts.email.value}}",
         "identity_documents": [{
             "type": "passport",
@@ -148,6 +165,14 @@ pub fn passenger(passenger_id: &str, t: &Traveller, passport: &Passport, today: 
             "expires_on": passport.expires_on,
         }],
     }))
+}
+
+fn duffel_gender(sex: &str) -> Option<&'static str> {
+    match sex.trim().to_ascii_uppercase().as_str() {
+        "M" => Some("m"),
+        "F" => Some("f"),
+        _ => None,
+    }
 }
 
 pub fn alpha2(code: &str) -> Option<&'static str> {

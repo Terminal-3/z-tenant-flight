@@ -8,18 +8,92 @@
       {
         "doc_type": "passport",
         "fields": {
-          "document_number": { "value": "000000000", "source": "mrz", "validated": true, "validated_by": ["mrz.check_digits"], "user_edited": false },
-          "surname":         { "value": "EXAMPLE", "source": "mrz", "validated": true, "validated_by": ["viz.cross_check"], "user_edited": false },
-          "given_names":     { "value": "ALEX", "source": "mrz", "validated": true, "validated_by": ["viz.cross_check"], "user_edited": false },
-          "nationality":     { "value": "GBR", "source": "mrz", "validated": true, "validated_by": ["mrz.vocabulary"], "user_edited": false },
-          "date_of_birth":   { "value": "1990-04-12", "source": "mrz", "validated": true, "validated_by": ["mrz.check_digits"], "user_edited": false },
-          "date_of_expiry":  { "value": "2031-04-11", "source": "mrz", "validated": true, "validated_by": ["mrz.check_digits"], "user_edited": false },
-          "issuing_country": { "value": "GBR", "source": "mrz", "validated": true, "validated_by": ["mrz.vocabulary"], "user_edited": false }
+          "document_number": {
+            "value": "000000000",
+            "source": "mrz",
+            "validated": true,
+            "validated_by": [
+              "mrz.check_digits"
+            ],
+            "user_edited": false
+          },
+          "surname": {
+            "value": "EXAMPLE",
+            "source": "mrz",
+            "validated": true,
+            "validated_by": [
+              "viz.cross_check"
+            ],
+            "user_edited": false
+          },
+          "given_names": {
+            "value": "ALEX",
+            "source": "mrz",
+            "validated": true,
+            "validated_by": [
+              "viz.cross_check"
+            ],
+            "user_edited": false
+          },
+          "nationality": {
+            "value": "GBR",
+            "source": "mrz",
+            "validated": true,
+            "validated_by": [
+              "mrz.vocabulary"
+            ],
+            "user_edited": false
+          },
+          "date_of_birth": {
+            "value": "1990-04-12",
+            "source": "mrz",
+            "validated": true,
+            "validated_by": [
+              "mrz.check_digits"
+            ],
+            "user_edited": false
+          },
+          "sex": {
+            "value": "F",
+            "source": "mrz",
+            "validated": true,
+            "validated_by": [
+              "mrz.vocabulary"
+            ],
+            "user_edited": false
+          },
+          "date_of_expiry": {
+            "value": "2031-04-11",
+            "source": "mrz",
+            "validated": true,
+            "validated_by": [
+              "mrz.check_digits"
+            ],
+            "user_edited": false
+          },
+          "issuing_country": {
+            "value": "GBR",
+            "source": "mrz",
+            "validated": true,
+            "validated_by": [
+              "mrz.vocabulary"
+            ],
+            "user_edited": false
+          }
         },
-        "checks": [{ "id": "mrz.check_digits", "ok": true }]
+        "checks": [
+          {
+            "id": "mrz.check_digits",
+            "ok": true
+          }
+        ]
       }
     ],
-    "client": { "name": "private-doc-scanner", "version": "0.1.0", "engine": "web" },
+    "client": {
+      "name": "private-doc-scanner",
+      "version": "0.1.0",
+      "engine": "web"
+    },
     "created_at": "2026-11-17T00:00:00Z"
   },
   "server_checks": []

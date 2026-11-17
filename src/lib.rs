@@ -5,11 +5,11 @@
 //!   their own traveller record (title, phone, and optionally a passport) in
 //!   `z:<tid>:travellers`. Refused on a delegated call.
 //! - `search-offers`: Duffel offer search over plain `http` (no PII).
-//! - `book-offer`: Duffel order over `http-with-placeholders`. Name, date of
-//!   birth, gender and email are `{{profile.*}}` markers the host fills from
-//!   the customer's T3N profile; title and phone come from the traveller
-//!   record; the passport from that record or from a passport sealed with the
-//!   Private Doc Scanner (`z:<tid>:intake`).
+//! - `book-offer`: Duffel order over `http-with-placeholders`. Name and email
+//!   are `{{profile.*}}` markers the host fills from the customer's T3N
+//!   profile; title and phone come from the traveller record; the passport,
+//!   with date of birth and sex, from that record or from a passport sealed
+//!   with the Private Doc Scanner (`z:<tid>:intake`).
 //!
 //! Maps (create before first use, readable and writable by this contract):
 //! `secrets` (`duffel_api_key`, seeded by the tenant) and `travellers`.
