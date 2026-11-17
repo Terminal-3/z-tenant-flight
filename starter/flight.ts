@@ -1,7 +1,7 @@
 /**
  * Run z-tenant-flight on your own T3N tenant, on top of the Terminal 3 Get Started setup.
  *
- *   npm run flight setup [--with-scanner]       register the contract, create its maps, seal the Duffel key
+ *   npm run flight -- setup [--with-scanner]    register the contract, create its maps, seal the Duffel key
  *   npm run flight save-traveller [file.json]   save your traveller record (default ../examples/traveller.json)
  *   npm run flight grant                        let your org agent call search-offers and book-offer
  *   npm run flight search LHR JFK 2026-12-15    search as the agent

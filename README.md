@@ -34,7 +34,7 @@ The contract refuses an expired passport, a scanned passport whose number, expir
 The scanner reads the passport on the customer's phone, checks its machine-readable zone and seals the reviewed details to their vault. Nobody types the number, and the contract only accepts fields the scanner verified.
 
 1. Scan the passport with the [Private Doc Scanner](https://github.com/Terminal-3/private-doc-scanner), signed in with the **same Terminal 3 account**, so its vault (`z:<tid>:doc-intake` and its `intake` map) is in the same tenant as this contract.
-2. Run `npm run flight setup --with-scanner`, which lets this contract read the vault's `intake` map. If you later re-run the scanner's own setup and it registers a new version, it resets that map's readers: run this again afterwards.
+2. Run `npm run flight -- setup --with-scanner`, which lets this contract read the vault's `intake` map. If you later re-run the scanner's own setup and it registers a new version, it resets that map's readers: run this again afterwards.
 3. Save a traveller record without a passport: [`examples/traveller-scanner.json`](examples/traveller-scanner.json).
 4. Book with `scanner_request_id` set to the scanner's reference for that passport.
 
