@@ -43,7 +43,7 @@ pub struct Passport {
     pub issuing_country: String,
     pub expires_on: String,
     pub date_of_birth: String,
-    /// `M` or `F` as printed; stored as Duffel's `m` / `f`.
+    /// `M`, `F`, `Male` or `Female`; stored as Duffel's `m` / `f`.
     pub sex: String,
 }
 
@@ -73,7 +73,7 @@ pub fn parse_traveller(bytes: &[u8]) -> Result<Traveller, String> {
             return bad("passport.date_of_birth", "must be a date in YYYY-MM-DD form");
         }
         p.sex = duffel_gender(&p.sex)
-            .ok_or_else(|| "save-traveller: passport.sex: must be M or F; Duffel can't book a passport with unspecified sex".to_string())?
+            .ok_or_else(|| "save-traveller: passport.sex: must be M or F (or Male / Female); Duffel can't book a passport with unspecified sex".to_string())?
             .to_string();
         p.issuing_country = alpha2(&p.issuing_country)
             .ok_or_else(|| "save-traveller: passport.issuing_country: must be an ISO country code, e.g. GB or GBR".to_string())?
@@ -83,8 +83,10 @@ pub fn parse_traveller(bytes: &[u8]) -> Result<Traveller, String> {
 }
 
 /// The passport from a Private Doc Scanner record (`z:<tid>:intake`).
-/// The record must belong to `caller_hex`, and its passport number, expiry
-/// and issuing country must have passed the scanner's MRZ checks unedited.
+/// The record must belong to `caller_hex`. Each field used must be either
+/// verified by the scanner or corrected by the traveller in its review step:
+/// the traveller is the source of both, as with `save-traveller`. A field that
+/// is neither is an unconfirmed OCR guess and is refused.
 pub fn passport_from_scanner(record: &[u8], caller_hex: &str) -> Result<Passport, String> {
     #[derive(Deserialize)]
     struct Record {
@@ -116,9 +118,10 @@ pub fn passport_from_scanner(record: &[u8], caller_hex: &str) -> Result<Passport
     let doc = record.submission.documents.iter().find(|d| d.doc_type == "passport").ok_or_else(not_found)?;
     let field = |key: &str| -> Result<&str, String> {
         let f = doc.fields.get(key).ok_or_else(|| format!("book-offer: scanned passport has no {key}"))?;
-        if !f.validated || f.user_edited {
+        if !f.validated && !f.user_edited {
             return Err(format!(
-                "book-offer: scanned passport {key} was not verified by the scanner; rescan it or save the passport with save-traveller"
+                "book-offer: scanned passport {key} was not verified by the scanner or confirmed by you; \
+                 rescan it, correct it in the scanner, or save the passport with save-traveller"
             ));
         }
         Ok(f.value.as_str())

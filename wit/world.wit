@@ -2,7 +2,7 @@
 // (81f207c00): host:interfaces@2.4.0 and host:tenant@2.0.0. Importing
 // http-with-placeholders puts this contract in the tenant-http-placeholders
 // world. Re-vendor from the release you deploy to if it changes.
-package z:tenant-flight@0.6.1;
+package z:tenant-flight@0.7.0;
 
 world tenant-flight {
     import host:tenant/tenant-context@2.0.0;

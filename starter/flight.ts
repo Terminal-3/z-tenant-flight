@@ -30,7 +30,7 @@ import {
 } from "@terminal3/t3n-sdk";
 
 const TAIL = "flight";
-const VERSION = "0.6.1";
+const VERSION = "0.7.0";
 const WASM = new URL("../target/wasm32-wasip2/release/z_tenant_flight.wasm", import.meta.url);
 const DUFFEL_HOST = "api.duffel.com";
 const DEFAULT_AGENT_CREDITS = 300;
@@ -67,7 +67,7 @@ async function deployedVersion(contract: string): Promise<string | null> {
 
 /**
  * Write FLIGHT_CONTRACT_ID into .env as a single line: replace the first one (the empty line
- * .env.example ships with) and drop any others. Starters before 0.6.1 appended a second line,
+ * .env.example ships with) and drop any others. Earlier starters appended a second line,
  * and the env loader takes the last one, so a stale id left below would win on the next run.
  */
 function recordContractId(id: number) {

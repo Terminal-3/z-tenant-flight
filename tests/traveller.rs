@@ -102,12 +102,80 @@ fn scanner_passport_of_someone_else_is_not_found() {
     assert!(err.contains("no scanned passport"), "{err}");
 }
 
+fn set_field(key: &str, attr: &str, value: serde_json::Value) -> Vec<u8> {
+    edit(SCANNED, |v| v["submission"]["documents"][0]["fields"][key][attr] = value)
+}
+
 #[test]
 fn unverified_or_edited_scanner_fields_are_refused() {
-    let unverified = edit(SCANNED, |v| v["submission"]["documents"][0]["fields"]["document_number"]["validated"] = false.into());
-    assert!(passport_from_scanner(&unverified, OWNER).unwrap_err().contains("not verified"));
-    let edited = edit(SCANNED, |v| v["submission"]["documents"][0]["fields"]["date_of_expiry"]["user_edited"] = true.into());
-    assert!(passport_from_scanner(&edited, OWNER).unwrap_err().contains("not verified"));
+    // Usable when the scanner verified it or the traveller corrected it;
+    // refused only when it is neither.
+    let guess = edit(SCANNED, |v| {
+        let f = &mut v["submission"]["documents"][0]["fields"]["document_number"];
+        f["validated"] = false.into();
+        f["user_edited"] = false.into();
+    });
+    let err = passport_from_scanner(&guess, OWNER).unwrap_err();
+    assert!(err.contains("document_number"), "{err}");
+    assert!(err.contains("not verified by the scanner or confirmed by you"), "{err}");
+    assert!(!err.contains("000000000"), "error echoed the value: {err}");
+
+    let corrected = edit(SCANNED, |v| {
+        let f = &mut v["submission"]["documents"][0]["fields"]["date_of_expiry"];
+        f["validated"] = false.into();
+        f["user_edited"] = true.into();
+    });
+    assert_eq!(passport_from_scanner(&corrected, OWNER).unwrap().expires_on, "2031-04-11");
+
+    let verified_and_edited = set_field("sex", "user_edited", true.into());
+    assert_eq!(passport_from_scanner(&verified_and_edited, OWNER).unwrap().sex, "f");
+}
+
+#[test]
+fn scanned_sex_word_or_letter_maps_to_duffel() {
+    for (value, want) in [("female", "f"), ("Female", "f"), ("FEMALE", "f"), ("F", "f"), (" f ", "f"), ("male", "m"), ("M", "m")] {
+        let rec = set_field("sex", "value", value.into());
+        assert_eq!(passport_from_scanner(&rec, OWNER).unwrap().sex, want, "sex {value:?}");
+    }
+    for value in ["X", "<", ""] {
+        let rec = set_field("sex", "value", value.into());
+        let err = passport_from_scanner(&rec, OWNER).unwrap_err();
+        assert!(err.contains("not M or F"), "sex {value:?}: {err}");
+    }
+}
+
+#[test]
+fn save_traveller_accepts_sex_as_a_word() {
+    let t = parse_traveller(&edit(MANUAL, |v| v["passport"]["sex"] = "Female".into())).unwrap();
+    assert_eq!(t.passport.unwrap().sex, "f");
+    let err = parse_traveller(&edit(MANUAL, |v| v["passport"]["sex"] = "X".into())).unwrap_err();
+    assert!(err.contains("must be M or F (or Male / Female)"), "{err}");
+}
+
+#[test]
+fn edited_scanner_passport_still_checked() {
+    // An edit is accepted, but the format and expiry checks still apply.
+    let bad_date = edit(SCANNED, |v| {
+        let f = &mut v["submission"]["documents"][0]["fields"]["date_of_expiry"];
+        f["value"] = "11/04/2031".into();
+        f["user_edited"] = true.into();
+    });
+    assert!(passport_from_scanner(&bad_date, OWNER).unwrap_err().contains("not a YYYY-MM-DD date"));
+
+    let expired = edit(SCANNED, |v| {
+        let f = &mut v["submission"]["documents"][0]["fields"]["date_of_expiry"];
+        f["value"] = "2020-01-01".into();
+        f["validated"] = false.into();
+        f["user_edited"] = true.into();
+    });
+    let pp = passport_from_scanner(&expired, OWNER).unwrap();
+    let t = parse_traveller(SCANNER_ONLY).unwrap();
+    assert!(passenger("pas_1", &t, &pp, TODAY).unwrap_err().contains("expired"));
+
+    let edited_someone_elses = set_field("sex", "user_edited", true.into());
+    assert!(passport_from_scanner(&edited_someone_elses, "2222222222222222222222222222222222222222")
+        .unwrap_err()
+        .contains("no scanned passport"));
 }
 
 #[test]

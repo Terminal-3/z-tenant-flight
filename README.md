@@ -37,13 +37,15 @@ The agent's `book-offer` input carries no personal data, only the offer it chose
 | Title, phone number | The customer's **traveller record**, which they save for themselves with `save-traveller`. |
 | Passport number, issuing country, expiry, date of birth, sex | **Recommended:** the passport the customer scanned with the [Private Doc Scanner](https://github.com/Terminal-3/private-doc-scanner). **Or** the `passport` block of their traveller record. |
 
-The T3N profile holds only the customer's name and email, so the customer supplies everything else. Date of birth and sex (Duffel's `born_on` and `gender`) are read from the passport. If the profile is missing a name or a verified email, `book-offer` fails with `user profile missing field: <field>`.
+The T3N profile holds only the customer's name and email, so the customer supplies everything else. Date of birth and sex (Duffel's `born_on` and `gender`) are read from the passport; sex may read `F` or `Female` (`M` or `Male`). If the profile is missing a name or a verified email, `book-offer` fails with `user profile missing field: <field>`.
 
-The contract refuses an expired passport, a scanned passport whose number, expiry, issuing country, date of birth or sex failed the scanner's checks or was edited by hand, a passport whose sex isn't male or female (Duffel accepts only `m` or `f`, so a passport with unspecified sex, `<` in the MRZ, can't be booked; it's refused before anything is sent to Duffel), and a scanned record that belongs to someone else.
+A scanned field is used if the scanner verified it or the traveller corrected it on the scanner's review screen. The traveller is the source of both, just as when they type the passport into `save-traveller`. A field that is neither, an unconfirmed reading the traveller never checked, is refused.
+
+The contract refuses an expired passport, a scanned field that the scanner didn't verify and the traveller didn't confirm, a passport whose sex isn't male or female (Duffel accepts only `m` or `f`, so a passport with unspecified sex, `<` in the MRZ, can't be booked; it's refused before anything is sent to Duffel), and a scanned record that belongs to someone else.
 
 ### Recommended: use the Private Doc Scanner for the passport
 
-The scanner reads the passport on the customer's phone, checks its machine-readable zone and seals the reviewed details to their vault. Nobody types the number, and the contract only accepts fields the scanner verified.
+The scanner reads the passport on the customer's phone, checks its machine-readable zone and seals the reviewed details to their vault. Nobody types the number, and the contract only accepts fields the scanner verified or the traveller corrected in review.
 
 1. Scan the passport with the [Private Doc Scanner](https://github.com/Terminal-3/private-doc-scanner), signed in with the **same Terminal 3 account**, so its vault (`z:<tid>:doc-intake` and its `intake` map) is in the same tenant as this contract.
 2. Run `npm run flight -- setup --with-scanner`, which lets this contract read the vault's `intake` map. If it says no vault was found but you already have one, it was set up before the scanner recorded contract ids: run `npx tsx scripts/setup-vault.ts --reregister` in the scanner's `starter/` folder, then run this again. If you later re-run the scanner's own setup and it registers a new version, it resets that map's readers: run this again afterwards.
@@ -85,7 +87,7 @@ To use real details:
 | `passport.issuing_country` | unless you use the scanner | ISO 3166 code, 2 or 3 letters (`GB` or `GBR`) |
 | `passport.expires_on` | unless you use the scanner | `YYYY-MM-DD` |
 | `passport.date_of_birth` | unless you use the scanner | `YYYY-MM-DD` |
-| `passport.sex` | unless you use the scanner | `M` or `F`, as printed (`male` / `female` also accepted) |
+| `passport.sex` | unless you use the scanner | `M` or `F` as printed, or `Male` / `Female` |
 
 No other fields are accepted: name and email always come from the T3N profile.
 
