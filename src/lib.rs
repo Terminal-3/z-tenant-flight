@@ -20,8 +20,9 @@
 
 extern crate alloc;
 
-/// Traveller records and passports from the Private Doc Scanner. MINOR.
-pub const CONTRACT_VERSION: &str = "0.6.0";
+/// Scanned passports: sex may read Male / Female, and fields the traveller
+/// corrected in the scanner are accepted. MINOR.
+pub const CONTRACT_VERSION: &str = "0.7.0";
 
 wit_bindgen::generate!({
     world: "tenant-flight",
