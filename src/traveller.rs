@@ -73,7 +73,7 @@ pub fn parse_traveller(bytes: &[u8]) -> Result<Traveller, String> {
             return bad("passport.date_of_birth", "must be a date in YYYY-MM-DD form");
         }
         p.sex = duffel_gender(&p.sex)
-            .ok_or_else(|| "save-traveller: passport.sex: must be M or F".to_string())?
+            .ok_or_else(|| "save-traveller: passport.sex: must be M or F; Duffel can't book a passport with unspecified sex".to_string())?
             .to_string();
         p.issuing_country = alpha2(&p.issuing_country)
             .ok_or_else(|| "save-traveller: passport.issuing_country: must be an ISO country code, e.g. GB or GBR".to_string())?
@@ -136,7 +136,7 @@ pub fn passport_from_scanner(record: &[u8], caller_hex: &str) -> Result<Passport
         return Err("book-offer: scanned passport date_of_birth is not a YYYY-MM-DD date".to_string());
     }
     let sex = duffel_gender(field("sex")?)
-        .ok_or_else(|| "book-offer: scanned passport sex is not M or F, which Duffel requires".to_string())?
+        .ok_or_else(|| "book-offer: scanned passport sex is not M or F (male or female), which Duffel requires; a passport with unspecified sex can't be booked through Duffel".to_string())?
         .to_string();
     Ok(Passport { number, issuing_country, expires_on, date_of_birth, sex })
 }
@@ -167,10 +167,16 @@ pub fn passenger(passenger_id: &str, t: &Traveller, passport: &Passport, today: 
     }))
 }
 
+/// Duffel's `gender`, which accepts only "m" or "f". Takes the passport's
+/// letter (M/F, as typed in a traveller record) or the word the Private Doc
+/// Scanner stores ("male"/"female", as its MRZ parser reports it). A passport
+/// with unspecified sex ("<" in the MRZ, "nonspecified" from the scanner)
+/// can't be booked through Duffel, so it maps to None and is refused before
+/// any request is sent.
 fn duffel_gender(sex: &str) -> Option<&'static str> {
     match sex.trim().to_ascii_uppercase().as_str() {
-        "M" => Some("m"),
-        "F" => Some("f"),
+        "M" | "MALE" => Some("m"),
+        "F" | "FEMALE" => Some("f"),
         _ => None,
     }
 }

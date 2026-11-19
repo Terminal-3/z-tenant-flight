@@ -39,7 +39,7 @@ The agent's `book-offer` input carries no personal data, only the offer it chose
 
 The T3N profile holds only the customer's name and email, so the customer supplies everything else. Date of birth and sex (Duffel's `born_on` and `gender`) are read from the passport. If the profile is missing a name or a verified email, `book-offer` fails with `user profile missing field: <field>`.
 
-The contract refuses an expired passport, a scanned passport whose number, expiry, issuing country, date of birth or sex failed the scanner's checks or was edited by hand, a sex other than M or F (Duffel accepts only those), and a scanned record that belongs to someone else.
+The contract refuses an expired passport, a scanned passport whose number, expiry, issuing country, date of birth or sex failed the scanner's checks or was edited by hand, a passport whose sex isn't male or female (Duffel accepts only `m` or `f`, so a passport with unspecified sex, `<` in the MRZ, can't be booked; it's refused before anything is sent to Duffel), and a scanned record that belongs to someone else.
 
 ### Recommended: use the Private Doc Scanner for the passport
 
@@ -85,7 +85,7 @@ To use real details:
 | `passport.issuing_country` | unless you use the scanner | ISO 3166 code, 2 or 3 letters (`GB` or `GBR`) |
 | `passport.expires_on` | unless you use the scanner | `YYYY-MM-DD` |
 | `passport.date_of_birth` | unless you use the scanner | `YYYY-MM-DD` |
-| `passport.sex` | unless you use the scanner | `M` or `F`, as printed |
+| `passport.sex` | unless you use the scanner | `M` or `F`, as printed (`male` / `female` also accepted) |
 
 No other fields are accepted: name and email always come from the T3N profile.
 

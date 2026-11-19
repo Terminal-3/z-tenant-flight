@@ -21,7 +21,7 @@
 extern crate alloc;
 
 /// Traveller records and passports from the Private Doc Scanner. MINOR.
-pub const CONTRACT_VERSION: &str = "0.6.0";
+pub const CONTRACT_VERSION: &str = "0.6.1";
 
 wit_bindgen::generate!({
     world: "tenant-flight",

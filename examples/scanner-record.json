@@ -54,7 +54,7 @@
             "user_edited": false
           },
           "sex": {
-            "value": "F",
+            "value": "female",
             "source": "mrz",
             "validated": true,
             "validated_by": [

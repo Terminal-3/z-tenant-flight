@@ -30,7 +30,7 @@ import {
 } from "@terminal3/t3n-sdk";
 
 const TAIL = "flight";
-const VERSION = "0.6.0";
+const VERSION = "0.6.1";
 const WASM = new URL("../target/wasm32-wasip2/release/z_tenant_flight.wasm", import.meta.url);
 const DUFFEL_HOST = "api.duffel.com";
 const DEFAULT_AGENT_CREDITS = 300;
@@ -65,13 +65,20 @@ async function deployedVersion(contract: string): Promise<string | null> {
   }
 }
 
-/** Write FLIGHT_CONTRACT_ID into .env, replacing the (empty) line .env.example ships with. */
+/**
+ * Write FLIGHT_CONTRACT_ID into .env as a single line: replace the first one (the empty line
+ * .env.example ships with) and drop any others. Starters before 0.6.1 appended a second line,
+ * and the env loader takes the last one, so a stale id left below would win on the next run.
+ */
 function recordContractId(id: number) {
   if (!existsSync(".env")) return;
-  const env = readFileSync(".env", "utf8");
   const line = `FLIGHT_CONTRACT_ID=${id}`;
-  const pattern = /^FLIGHT_CONTRACT_ID=.*$/m;
-  writeFileSync(".env", pattern.test(env) ? env.replace(pattern, line) : `${env.trimEnd()}\n${line}\n`);
+  let written = false;
+  const lines = readFileSync(".env", "utf8")
+    .split("\n")
+    .flatMap((l) => (/^FLIGHT_CONTRACT_ID=/.test(l) ? (written ? [] : ((written = true), [line])) : [l]));
+  if (!written) lines.splice(lines.length - (lines.at(-1) === "" ? 1 : 0), 0, line);
+  writeFileSync(".env", lines.join("\n"));
 }
 
 async function createMap(tenant: TenantClient, tail: string, contractIds: number[]) {

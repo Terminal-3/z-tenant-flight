@@ -117,7 +117,32 @@ fn today_from_cluster_seconds() {
 }
 
 #[test]
+fn scanned_sex_comes_in_the_scanners_words() {
+    // The scanner's MRZ parser reports "male" / "female", not the passport's letter.
+    let sex = |value: &str| {
+        let x = edit(SCANNED, |v| v["submission"]["documents"][0]["fields"]["sex"]["value"] = value.into());
+        passport_from_scanner(&x, OWNER).map(|p| p.sex)
+    };
+    assert_eq!(sex("female").unwrap(), "f");
+    assert_eq!(sex("male").unwrap(), "m");
+    assert_eq!(sex("F").unwrap(), "f");
+    assert_eq!(sex("M").unwrap(), "m");
+}
+
+#[test]
 fn scanned_sex_other_than_m_or_f_is_refused() {
-    let x = edit(SCANNED, |v| v["submission"]["documents"][0]["fields"]["sex"]["value"] = "<".into());
-    assert!(passport_from_scanner(&x, OWNER).unwrap_err().contains("not M or F"));
+    // Duffel accepts only "m" or "f": an unspecified sex can't be booked.
+    for value in ["<", "nonspecified", "X", ""] {
+        let x = edit(SCANNED, |v| v["submission"]["documents"][0]["fields"]["sex"]["value"] = value.into());
+        assert!(passport_from_scanner(&x, OWNER).unwrap_err().contains("not M or F"), "{value:?} must be refused");
+    }
+}
+
+#[test]
+fn typed_sex_accepts_the_letter_or_the_word() {
+    for (value, want) in [("F", "f"), ("female", "f"), ("M", "m"), ("Male", "m")] {
+        let t = parse_traveller(&edit(MANUAL, |v| v["passport"]["sex"] = value.into())).unwrap();
+        assert_eq!(t.passport.unwrap().sex, want, "{value}");
+    }
+    assert!(parse_traveller(&edit(MANUAL, |v| v["passport"]["sex"] = "X".into())).is_err());
 }

@@ -1,6 +1,6 @@
 [package]
 name = "z-tenant-flight"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 description = "Book flights through the Duffel API for a T3N customer without the booking agent seeing their details: traveller records, scanner passports, http-with-placeholders"
 license = "MIT"
