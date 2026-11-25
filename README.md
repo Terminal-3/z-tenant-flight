@@ -126,3 +126,7 @@ cargo build --release
 ```
 
 The host interfaces in `wit/deps/` are vendored from the Trinity release `testnet-v1.0.12` (`host:interfaces@2.4.0`, `host:tenant@2.0.0`). Importing `http-with-placeholders` puts the contract in the `tenant-http-placeholders` world.
+
+## License
+
+Apache-2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
