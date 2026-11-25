@@ -1,0 +1,1 @@
+These are the T3N host interface definitions, included so the contract builds. They are Terminal 3's and are not covered by this repository's Apache-2.0 license; they follow Terminal 3's own license terms for the T3N platform.

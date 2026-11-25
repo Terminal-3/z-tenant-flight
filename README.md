@@ -126,3 +126,8 @@ cargo build --release
 ```
 
 The host interfaces in `wit/deps/` are vendored from the Trinity release `testnet-v1.0.12` (`host:interfaces@2.4.0`, `host:tenant@2.0.0`). Importing `http-with-placeholders` puts the contract in the `tenant-http-placeholders` world.
+
+## License
+
+The code in this repository is licensed under Apache-2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+The T3N host interface definitions in [`wit/deps/`](wit/deps/) are Terminal 3's and follow Terminal 3's own license terms for the T3N platform.

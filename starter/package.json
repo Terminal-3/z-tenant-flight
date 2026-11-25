@@ -2,7 +2,7 @@
   "name": "z-tenant-flight-starter",
   "version": "0.7.0",
   "private": true,
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "description": "Register z-tenant-flight under your T3N tenant, save a traveller, grant your agent and book a test flight.",
   "scripts": {
