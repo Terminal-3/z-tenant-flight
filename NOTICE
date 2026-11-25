@@ -1,2 +1,8 @@
 Z-Tenant Flight
 Copyright 2026 Terminal 3
+
+The files in wit/deps/ are the T3N host interface definitions
+(host:interfaces, host:tenant), included from the T3N platform so this
+contract can be built. They are not covered by this repository's
+Apache-2.0 license and remain under Terminal 3's own license terms for
+the T3N platform.

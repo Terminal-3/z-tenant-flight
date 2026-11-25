@@ -129,4 +129,5 @@ The host interfaces in `wit/deps/` are vendored from the Trinity release `testne
 
 ## License
 
-Apache-2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+The code in this repository is licensed under Apache-2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+The T3N host interface definitions in [`wit/deps/`](wit/deps/) are Terminal 3's and follow Terminal 3's own license terms for the T3N platform.
